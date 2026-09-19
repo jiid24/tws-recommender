@@ -46,10 +46,13 @@ type Recommendation = {
   };
 };
 
+type ValidationError = { msg: string };
+
 type RecommendationResponse = {
   recommendations?: Recommendation[];
   pesan?: string;
-  detail?: string;
+  // FastAPI mengirim detail validasi (422) sebagai array { msg }, bukan string.
+  detail?: string | ValidationError[];
 };
 
 type PreferenceData = {
@@ -91,7 +94,13 @@ export default function RecommendPage() {
       const data = (await response.json()) as RecommendationResponse;
 
       if (!response.ok) {
-        throw new Error(data.detail || "Gagal mengambil rekomendasi");
+        const detailMessage =
+          typeof data.detail === "string"
+            ? data.detail
+            : Array.isArray(data.detail)
+              ? data.detail.map((item) => item.msg).join(", ")
+              : "";
+        throw new Error(detailMessage || "Gagal mengambil rekomendasi");
       }
 
       const nextRecommendations = data.recommendations ?? [];

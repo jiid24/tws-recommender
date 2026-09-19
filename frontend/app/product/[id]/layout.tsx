@@ -28,8 +28,12 @@ export async function generateMetadata({ params }: ProductLayoutProps): Promise<
     const description = product.deskripsi || `${product.nama} dari ${product.brand}, tersedia di katalog TWS Recommender.`;
     const image = getImageUrl(product);
 
+    // Template title root layout tidak diterapkan pada generateMetadata di
+    // layout ini, sehingga judul disusun eksplisit lewat `absolute`.
+    const pageTitle = { absolute: `${product.nama} | TWS Recommender` };
+
     return {
-      title: product.nama,
+      title: pageTitle,
       description,
       openGraph: {
         title: `${product.nama} — ${product.brand}`,
@@ -45,7 +49,7 @@ export async function generateMetadata({ params }: ProductLayoutProps): Promise<
     };
   } catch {
     return {
-      title: "Detail Produk TWS",
+      title: { absolute: "Detail Produk TWS | TWS Recommender" },
       description: "Detail spesifikasi produk TWS dalam katalog TWS Recommender.",
     };
   }
