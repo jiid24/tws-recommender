@@ -71,9 +71,11 @@ tws.json
 frontend/public/images/*
 !frontend/public/images/no-image.svg
 
-# ===== Thesis / dokumen pribadi =====
-bab1.txt
-panduan.txt
-generate_bab1_revisi.py
-read_docx.ps1
-scripts_thesis/
+
+# Local backups (not tracked)
+_backup/
+
+# ===== Local tooling & archives (not tracked) =====
+.claude/
+.audit_docx_render/
+backend/app/_arsip/

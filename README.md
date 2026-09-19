@@ -1,71 +1,59 @@
 # TWS Recommender
 
-TWS Recommender adalah aplikasi rekomendasi True Wireless Stereo (TWS) berbasis preferensi pengguna. Aplikasi ini membantu pengguna menemukan produk TWS yang sesuai dengan kebutuhan audio, fitur, dan penggunaan harian melalui pendekatan **Content-Based Filtering**.
+![Tampilan halaman beranda](docs/screenshots/beranda.png)
 
-![Tampilan TWS Recommender](frontend/public/project-preview.svg)
+TWS Recommender adalah proyek iseng-isengan yang berangkat dari masalah sehari-hari: milih earbuds di marketplace itu membingungkan. Pilihannya banyak, spesifikasi tidak pernah ditulis sejajar, dan kita sering cuma butuh beberapa hal tertentu — suara bass, baterai awet, atau yang aman buat olahraga.
 
-## Fitur Utama
+Aplikasi ini mencoba merapikan masalah itu untuk lingkup yang lebih sempit: **TWS di bawah Rp1 juta**. Pengguna mengisi preferensi (karakter suara, daya tahan baterai, ANC, mode gaming, ketahanan air, dan budget), sistem mencocokkannya dengan spesifikasi tiap produk, lalu menampilkan lima rekomendasi teratas beserta alasan singkatnya.
 
-- **Rekomendasi berbasis preferensi pengguna** untuk menemukan TWS yang paling sesuai.
-- **Content-Based Filtering** untuk menghitung kecocokan antara preferensi pengguna dan spesifikasi produk.
-- **Katalog produk TWS** sebagai sumber data utama dalam proses rekomendasi.
-- **Antarmuka web responsif** dengan tampilan modern dan mudah digunakan.
-- **Backend API terpisah** untuk mengelola data dan proses rekomendasi.
+![Contoh hasil rekomendasi](docs/screenshots/rekomendasi.png)
+
+Selain halaman rekomendasi, ada katalog untuk menelusuri seluruh produk (pencarian, filter harga dan brand, urutkan), halaman detail tiap produk, dan FAQ singkat soal istilah-istilah yang sering muncul di spesifikasi TWS.
+
+## Cara Kerja
+
+Rekomendasi dihitung di backend dengan pendekatan **content-based filtering** yang dibagi dua tahap:
+
+1. **Penyaringan (hard constraint)** — produk yang harganya melebihi budget, baterainya di bawah minimum, atau ketahanan airnya tidak memenuhi langsung disingkirkan.
+2. **Penilaian kemiripan** — produk yang lolos diubah menjadi vektor 7 dimensi (karakter suara one-hot `[bass, balance, treble]`, ANC, gaming, baterai, ketahanan air), lalu dihitung **cosine similarity**-nya terhadap vektor preferensi pengguna. Skor ini yang ditampilkan sebagai persentase kecocokan.
+
+Beberapa keputusan desain di baliknya:
+
+- Rating IP di-parse langsung dari stringnya mengikuti standar IEC 60529 (mis. `IP54` → debu 5, air 4), jadi tidak bergantung pada tabel yang berisiko lupa diperbarui.
+- Fitur yang tidak diminta pengguna "dinetralkan" agar tidak menurunkan skor — produk dengan fitur ekstra tidak dihukum.
+- Bluetooth dan codec tidak ikut dalam perhitungan skor; keduanya hanya ditampilkan sebagai informasi pelengkap.
 
 ## Teknologi
 
-- **Frontend:** Next.js, React 19, Tailwind CSS v4, lucide-react
-- **Backend:** FastAPI, Python 3.11+
-- **Database:** MongoDB
-- **Metode Rekomendasi:** Content-Based Filtering
+- **Backend:** FastAPI, MongoDB (PyMongo), Python 3.11+
+- **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, framer-motion
+- **Dataset:** koleksi produk TWS di bawah Rp1 juta
 
 ## Struktur Project
 
 ```text
 tws-recommender/
-├── backend/      # API, koneksi database, dan logika rekomendasi
-├── frontend/     # Aplikasi web berbasis Next.js
-├── tws.json      # Dataset produk TWS
-└── README.md     # Dokumentasi project
+├── backend/      # API FastAPI, koneksi database, dan logika rekomendasi
+├── frontend/     # Aplikasi web Next.js
+├── docs/         # Screenshot untuk README
+└── tws.json      # Dataset produk (lokal saja, tidak disertakan di repo)
 ```
 
-## Persyaratan
-
-Pastikan perangkat sudah memiliki:
-
-- **Node.js** untuk menjalankan frontend.
-- **Python 3.11+** untuk menjalankan backend.
-- **MongoDB** sebagai database.
-- **npm** sebagai package manager frontend.
-
-## Instalasi dan Menjalankan Project
+## Menjalankan Project
 
 ### 1. Backend
 
-Masuk ke folder backend:
-
 ```bash
 cd backend
-```
-
-Buat dan aktifkan virtual environment:
-
-```bash
 python -m venv venv
 venv\Scripts\activate
-```
-
-Install dependency backend:
-
-```bash
 pip install -r requirements.txt
 ```
 
-Buat file `.env` di dalam folder `backend`:
+Salin `backend/.env.example` menjadi `backend/.env`. Untuk pengembangan lokal, nilai default-nya sudah cukup selama MongoDB berjalan di `localhost:27017`. Lalu isi database dari dataset:
 
-```env
-MONGO_URI=mongodb://localhost:27017
-DB_NAME=tws_recommender
+```bash
+python -m scripts.seed
 ```
 
 Jalankan server backend:
@@ -74,54 +62,43 @@ Jalankan server backend:
 uvicorn app.main:app --reload
 ```
 
-Backend berjalan di:
-
-```text
-http://localhost:8000
-```
+Backend berjalan di `http://localhost:8000`.
 
 ### 2. Frontend
 
-Masuk ke folder frontend:
-
 ```bash
 cd frontend
-```
-
-Install dependency frontend:
-
-```bash
 npm install
 ```
 
-Jalankan aplikasi frontend:
+Salin `frontend/.env.example` menjadi `frontend/.env.local` — opsional, karena tanpa file itu aplikasi memakai `http://localhost:8000` sebagai alamat API. Lalu jalankan:
 
 ```bash
 npm run dev
 ```
 
-Frontend berjalan di:
-
-```text
-http://localhost:3000
-```
+Frontend berjalan di `http://localhost:3000`.
 
 ## Environment Variables
 
-Konfigurasi environment backend disimpan pada file `backend/.env`.
+**Backend (`backend/.env`)**
 
-| Variable | Deskripsi | Contoh |
+| Variable | Deskripsi | Default |
 | --- | --- | --- |
-| `MONGO_URI` | URI koneksi MongoDB | `mongodb://localhost:27017` |
-| `DB_NAME` | Nama database yang digunakan | `tws_recommender` |
+| `MONGODB_URL` | URI koneksi MongoDB | `mongodb://localhost:27017/` |
+| `DB_NAME` | Nama database | `tws_recommender` |
+| `COLLECTION_NAME` | Nama koleksi produk | `tws_products` |
+| `CORS_ORIGINS` | Origin frontend yang diizinkan, dipisah koma | `http://localhost:3000` |
 
-## Alur Kerja Sistem
+**Frontend (`frontend/.env.local`)**
 
-1. Pengguna memilih preferensi TWS melalui halaman rekomendasi.
-2. Backend mengambil data produk dari database.
-3. Sistem menghitung kecocokan berdasarkan atribut produk dan preferensi pengguna.
-4. Aplikasi menampilkan daftar produk TWS dengan tingkat kecocokan terbaik.
+| Variable | Deskripsi | Default |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | Base URL backend API | `http://localhost:8000` |
+| `NEXT_PUBLIC_SITE_URL` | Base URL situs untuk metadata saat link dibagikan | `http://localhost:3000` |
+| `IMAGE_REMOTE_HOSTS` | Host gambar eksternal untuk `next/image`, dipisah koma | kosong |
 
-## Lisensi
+## Catatan
 
-Project ini dibuat untuk kebutuhan pengembangan sistem rekomendasi TWS.
+- Dataset `tws.json` dan gambar produk sengaja tidak disertakan di repo. Skrip seed membaca file tersebut dari root project, jadi siapkan datamu sendiri bila ingin mencoba — formatnya array of objects dengan skema yang sama seperti model `TWSModel` di `backend/app/models.py`.
+- Ada skrip pengecekan layout sederhana untuk halaman-halaman utama (butuh `playwright` Python serta backend dan frontend yang sedang berjalan): `python frontend/scripts/visual_qa.py`.
