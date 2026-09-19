@@ -1,90 +1,85 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Query
 from bson import ObjectId
+from fastapi.middleware.cors import CORSMiddleware
 import math
 
 from app.database import tws_collection
+from app.config import CORS_ORIGINS
 from app.models import UserPreferenceModel, TWSModel
 
 
 # ─────────────────────────────────────────────
-#  TABEL KETAHANAN AIR (IP Rating)
+#  KETAHANAN AIR & DEBU (IP Rating, IEC 60529)
 # ─────────────────────────────────────────────
 #
-# Rating IP itu standar internasional yang menunjukkan seberapa tahan suatu
-# perangkat terhadap debu dan air, contohnya IPX4, IP55, IP68.
+# Format rating "IPxy": digit pertama = proteksi debu (0–6), digit kedua =
+# proteksi air (0–8). Huruf "X" berarti aspek itu tidak diuji/diklaim dan
+# diperlakukan sebagai 0.
+#   Contoh: "IPX4" → debu 0, air 4 ; "IP54" → debu 5, air 4.
 #
-# Cara baca:
-#   - Angka/huruf pertama  = ketahanan debu (X = tidak diuji)
-#   - Angka kedua          = ketahanan air (semakin tinggi semakin tahan)
-#
-# Untuk TWS, yang relevan adalah angka kedua (ketahanan air). Tabel di bawah
-# mengubah string rating menjadi angka biar mudah dibandingkan (misal:
-# "apakah produk dengan IPX5 lebih tahan dari kebutuhan minimum IPX4?").
-WATER_HIERARCHY: dict[str, int] = {
-    "IPX2": 2,
-    "IPX3": 3,
-    "IPX4": 4,
-    "IPX5": 5,
-    "IPX6": 6,
-    "IPX7": 7,
-    "IP54": 4,  # tahan percikan ringan (setara IPX4)
-    "IP55": 5,  # tahan semprotan air (setara IPX5)
-    "IP56": 6,
-    "IP57": 7,
-    "IP67": 7,
-    "IP68": 8,  # paling tahan air, bisa direndam
-}
+# Kedua digit di-parse langsung dari string (satu sumber kebenaran), bukan
+# lewat tabel hardcoded, supaya rating baru otomatis dikenali dan tidak ada
+# risiko lupa memperbarui tabel. Ini menggantikan pendekatan field ordinal
+# water_resistance_level pre-computed yang dipakai di main-onehot.py — di
+# sini rating IP tetap jadi satu-satunya sumber kebenaran, sejalan dengan
+# standar IEC 60529, sementara karakter suara tetap di-One-Hot Encoding.
 
-# Tabel ini menerjemahkan pilihan user di form ("none" / "basic" / "sport")
-# menjadi angka minimal yang harus dipenuhi rating produk.
-#
-# Misal: kalau user pilih "sport", produk harus minimal punya rating dengan
-# nilai 5 ke atas (IPX5, IP55, IP67, dst).
-WATER_MIN_THRESHOLD: dict[str, int] = {
-    "none":  0,   # user tidak peduli — tidak ada filter ketahanan air
-    "basic": 4,   # anti keringat ringan / percikan air
-    "sport": 5,   # untuk olahraga / aktivitas outdoor
-}
-
-# ─────────────────────────────────────────────
-#  DAFTAR HI-RES AUDIO
-# ─────────────────────────────────────────────
-#
-# Codec audio dibagi 2 tingkat kualitas:
-#   - Standar : SBC, AAC — lossy biasa, default Bluetooth
-#   - Hi-Res Audio : LDAC, LHDC, aptX (semua varian), LC3, SSC, L2HC
-#               — bitrate lebih tinggi / kompresi lebih baik / lossless
-#
-# Daftar di bawah berisi kata kunci. Sebuah produk dianggap Hi-Res Audio kalau
-# field codec-nya mengandung MINIMAL SATU dari kata kunci ini
-# (case-insensitive). Misal codec "SBC, AAC, LDAC" → Hi-Res Audio karena ada LDAC.
-HIRES_CODEC_KEYWORDS: tuple[str, ...] = (
-    "LDAC",
-    "LHDC",
-    "aptX",   # mencakup aptX, aptX HD, aptX Adaptive, aptX Lossless
-    "LC3",
-    "SSC",    # mencakup SSC, SSC Hi-Fi
-    "L2HC",
-)
+# Level tertinggi standar IEC 60529 untuk ketahanan air (IP68 = 8).
+# Dipakai sebagai pembagi normalisasi water_tier ke skala [0,1].
+WATER_MAX_LEVEL = 8
 
 
-def _is_hires_codec(codec_str: str | None) -> bool:
+def _ip_levels(rating: str | None) -> tuple[int, int]:
     """
-    Cek apakah string codec produk mengandung salah satu codec Hi-Res Audio.
-    Pencocokan tidak peduli huruf besar/kecil. Kalau codec_str kosong
-    atau None, dianggap bukan Hi-Res Audio.
-    """
-    if not codec_str:
-        return False
-    codec_upper = codec_str.upper()
-    return any(kw.upper() in codec_upper for kw in HIRES_CODEC_KEYWORDS)
+    Pecah rating IP menjadi (level_debu, level_air) sesuai IEC 60529.
+    Digit "X" atau format tak lengkap diperlakukan sebagai 0.
+    Contoh: "IP54" → (5, 4), "IPX5" → (0, 5), None → (0, 0).
 
-app = FastAPI(title="TWS Recommendation API")
+    Spasi dibuang lebih dulu supaya penulisan seperti "IP 54" tetap terbaca
+    benar; tanpa ini digitnya bergeser dan rating salah dinilai.
+    """
+    body = (rating or "").upper().replace(" ", "").removeprefix("IP")
+    if len(body) < 2:
+        return (0, 0)
+    dust = int(body[0]) if body[0].isdigit() else 0
+    water = int(body[1]) if body[1].isdigit() else 0
+    return (dust, water)
+
+
+def _passes_water_requirement(rating: str | None, requirement: str) -> bool:
+    """
+    Cek apakah produk memenuhi ambang ketahanan air yang diminta user.
+
+      none  : selalu lolos (user tidak butuh).
+      basic : tahan keringat/percikan  → level air ≥ 4 (IPX4, IP54, …).
+      sport : olahraga & outdoor       → tahan air kuat (air ≥ 5, mis.
+              IPX5/IP55) ATAU tahan debu + percikan (debu ≥ 5 dan air ≥ 4,
+              mis. IP54).
+
+    Catatan desain: untuk pemakaian luar ruangan, proteksi debu (digit
+    pertama) sama pentingnya dengan air. IP54 (debu 5, air 4) karena itu
+    layak masuk kategori sport meski digit airnya hanya 4 — justru lebih
+    sesuai outdoor dibanding IPX5 yang tanpa proteksi debu sama sekali.
+    """
+    dust, water = _ip_levels(rating)
+    if requirement == "basic":
+        return water >= 4
+    if requirement == "sport":
+        return water >= 5 or (dust >= 5 and water >= 4)
+    return True  # "none" atau nilai tak dikenal → tidak memfilter
+
+# Plafon baterai untuk normalisasi (capped min-max). Dipilih 50 jam sebagai
+# batas atas praktis: mayoritas produk ada di bawahnya, dan di atas ~50 jam
+# perbedaan daya tahan tak lagi terasa signifikan bagi pengguna (produk
+# 52–60 jam dianggap setara = 1.00). Contoh: 16 jam → 0.32, 30 jam → 0.60,
+# 50 jam → 1.00. Angka ini keputusan desain, bisa di-tune sesuai dataset.
+BATTERY_CAP_HOURS = 50.0
+
+app = FastAPI(title="TWS Recommendation API (One-Hot Encoding + Live IP Parsing)")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -93,16 +88,31 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"message": "Backend TWS Recommendation API is running"}
+    return {"message": "Backend TWS Recommendation API (One-Hot v2) is running"}
 
 
 @app.get("/tws")
-def get_all_tws():
+def get_all_tws(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(0, ge=0, le=500),
+):
+    """
+    Ambil daftar produk.
+
+    Paginasi opsional lewat query `skip` dan `limit`. Nilai default
+    `limit=0` mengembalikan seluruh produk — kompatibel dengan katalog
+    frontend yang memuat semua data untuk difilter di sisi klien.
+    `total_data` selalu berisi jumlah keseluruhan produk di basis data.
+    """
+    total = tws_collection.count_documents({})
+    cursor = tws_collection.find().skip(skip)
+    if limit:
+        cursor = cursor.limit(limit)
     data = []
-    for item in tws_collection.find():
+    for item in cursor:
         item["_id"] = str(item["_id"])
         data.append(item)
-    return {"total_data": len(data), "products": data}
+    return {"total_data": total, "returned": len(data), "products": data}
 
 
 @app.get("/tws/{product_id}")
@@ -115,6 +125,47 @@ def get_tws_by_id(product_id: str):
         raise HTTPException(status_code=404, detail="Produk tidak ditemukan.")
     product["_id"] = str(product["_id"])
     return product
+
+
+# Ambang tier harga untuk pengelompokan "produk terkait", menyesuaikan ruang
+# lingkup penelitian (produk di bawah Rp1.000.000) dan memakai batas yang sama
+# dengan filter harga pada katalog frontend (300rb / 600rb).
+def _price_tier(harga: int) -> str:
+    if harga <= 300_000:
+        return "low"
+    if harga <= 600_000:
+        return "mid"
+    return "high"
+
+
+@app.get("/tws/{product_id}/related")
+def get_related_tws(product_id: str, limit: int = Query(4, ge=1, le=20)):
+    """
+    Produk terkait untuk halaman detail: utamakan brand yang sama, lalu
+    lengkapi dengan produk pada tier harga yang sama (brand berbeda).
+    Dihitung di server agar frontend tidak perlu mengunduh seluruh katalog
+    hanya untuk menampilkan beberapa produk terkait.
+    """
+    try:
+        detail = tws_collection.find_one({"_id": ObjectId(product_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Format ID tidak valid.")
+    if not detail:
+        raise HTTPException(status_code=404, detail="Produk tidak ditemukan.")
+
+    detail_tier = _price_tier(detail["harga"])
+    same_brand: list[dict] = []
+    same_tier: list[dict] = []
+    for product in tws_collection.find({"_id": {"$ne": detail["_id"]}}):
+        if product["brand"] == detail["brand"]:
+            same_brand.append(product)
+        elif _price_tier(product["harga"]) == detail_tier:
+            same_tier.append(product)
+
+    related = (same_brand + same_tier)[:limit]
+    for item in related:
+        item["_id"] = str(item["_id"])
+    return {"total": len(related), "products": related}
 
 
 @app.post("/tws")
@@ -168,124 +219,111 @@ def delete_tws(product_id: str):
 
 
 # ─────────────────────────────────────────────
-#  MENGUBAH KARAKTER SUARA JADI ANGKA
+#  ENCODING KARAKTER SUARA (One-Hot Encoding)
 # ─────────────────────────────────────────────
 #
-# Komputer tidak bisa membandingkan teks "bass", "balance", "treble"
-# secara langsung. Kita harus mengubahnya jadi angka dulu.
+# Karakter suara dikodekan dengan One-Hot Encoding: tiap kategori diwakili
+# tiga dimensi [bass, balance, treble], dengan nilai 1 pada kategori yang
+# aktif dan 0 pada lainnya. Encoding ini adalah metode baku untuk atribut
+# kategorikal — tiap kategori diperlakukan sebagai kelas terpisah yang
+# saling tegak lurus (orthogonal).
 #
-# Karakter suara dibagi 3 tingkat frekuensi:
-#   - bass    : suara rendah dominan (low)
-#   - balance : seimbang (mengandung low, mid, dan high)
-#   - treble  : suara tinggi dominan (high)
-#
-# Setiap karakter dijabarkan jadi 3 angka [low, mid, high] yang menunjukkan
-# seberapa kuat tiap rentang frekuensi:
-#
-#   bass     = [1.0, 0.5, 0.0]   → low kuat, mid sedang, high tidak ada
-#   balance  = [0.5, 1.0, 0.5]   → semua rentang ada porsinya
-#   treble   = [0.0, 0.5, 1.0]   → high kuat, mid sedang, low tidak ada
-#
-# Kenapa begini? Supaya sistem paham bahwa bass dan balance "agak mirip"
-# (sama-sama punya unsur low), sedangkan bass dan treble "jauh berbeda".
-# Kalau kita pakai cara sederhana misalnya bass=[1,0,0], balance=[0,1,0],
-# treble=[0,0,1], maka jarak ketiganya sama persis — padahal di telinga
-# manusia, bass dan balance lebih berdekatan dari pada bass dan treble.
+# Tidak ada pembobotan manual (tidak ada koefisien kali yang ditambahkan).
+# Namun demikian, karena karakter suara adalah satu-satunya atribut dengan
+# tiga pilihan yang saling eksklusif — sedangkan ANC, gaming, dan fitur
+# lain bersifat biner (ada/tidak) — ketidakcocokan kategori suara secara
+# matematis berpengaruh lebih besar terhadap skor cosine dibandingkan
+# hilangnya satu fitur biner. Ini konsekuensi dari cara cosine similarity
+# memperlakukan pergantian kategori (magnitude vektor tetap, hanya arah
+# yang berubah) dibanding hilangnya fitur biner (magnitude vektor ikut
+# menyusut), bukan hasil pembobotan yang disengaja.
 SUARA_VEC: dict[str, list[float]] = {
-    "bass":    [1.0, 0.5, 0.0],
-    "balance": [0.5, 1.0, 0.5],
-    "treble":  [0.0, 0.5, 1.0],
+    "bass":    [1.0, 0.0, 0.0],
+    "balance": [0.0, 1.0, 0.0],
+    "treble":  [0.0, 0.0, 1.0],
 }
 
-# Bobot tiap fitur saat dihitung kemiripan.
-#
-# Karakter suara diberi bobot 2x (dua kali lipat dari ANC, gaming, dan codec)
-# karena:
-#
-#   1) Skripsi ini fokus pada "preferensi suara pengguna" sebagai faktor
-#      utama. Maka wajar kalau karakter suara lebih berpengaruh ke skor
-#      dibanding fitur pendukung lainnya.
-#
-#   2) Membuat porsi adil. Karakter suara terdiri dari 3 angka [low, mid,
-#      high], sedangkan ANC, gaming, dan codec masing-masing cuma 1 angka
-#      (Ya/Tidak). Tanpa bobot tambahan, fitur boolean bisa terlalu dominan.
-#
-# Catatan: angka 2.0 dipilih berdasarkan pertimbangan, bukan hasil eksperimen.
-# Riset lanjutan bisa mencari bobot terbaik dari feedback pengguna.
-WEIGHTS: dict[str, float] = {
-    "suara":  2.0,
-    "anc":    1.0,
-    "gaming": 1.0,
-    "hires":  1.0,
-}
+
+def _battery_tier(product_hours: float) -> float:
+    """
+    Normalisasi baterai produk ke skala [0,1] dengan plafon BATTERY_CAP_HOURS.
+    Di atas plafon dianggap sama "bagus"-nya (capped min-max normalization).
+    """
+    if product_hours <= 0:
+        return 0.0
+    return min(product_hours / BATTERY_CAP_HOURS, 1.0)
+
+
+def _water_tier(rating: str | None) -> float:
+    """
+    Normalisasi ketahanan air ke skala [0,1] terhadap level tertinggi
+    standar IEC 60529 (air = 8).
+
+    Konsisten dengan _passes_water_requirement: proteksi debu memadai
+    (debu >= 5) pada produk tahan percikan (air >= 4) dianggap setara
+    perlindungan outdoor level 5 — mis. IP54 dinilai setara IPX5. Tanpa
+    penyelarasan ini, produk seperti IP54 yang lolos filter "sport" berkat
+    proteksi debunya justru mendapat skor air lebih rendah, sehingga skor
+    tidak sinkron dengan filter.
+
+    Hasilnya dibatasi maksimal 1.0 (sama seperti _battery_tier) supaya rating
+    di luar skala standar, mis. IPX9, tidak menghasilkan nilai di atas 1 yang
+    justru menjauhkan vektor produk dari vektor preferensi.
+    """
+    dust, water = _ip_levels(rating)
+    effective = max(water, 5) if (dust >= 5 and water >= 4) else water
+    return min(effective / WATER_MAX_LEVEL, 1.0)
 
 
 def _build_vector(
     suara: str,
     anc: bool,
     gaming: bool,
-    hires: bool,
+    battery_score: float,
+    water_score: float,
+    water_active: bool,
 ) -> list[float]:
     """
-    Mengubah atribut produk atau preferensi pengguna menjadi deretan angka
-    (vektor) yang siap dibandingkan dengan rumus kemiripan.
+    Mengubah preferensi user atau atribut produk menjadi vektor 7-dimensi:
 
-    Hasilnya berisi 6 angka:
-      [0..2] : tiga angka untuk karakter suara [low, mid, high]
-      [3]    : ANC          (1 = ada,        0 = tidak)
-      [4]    : gaming mode  (1 = mendukung,  0 = tidak)
-      [5]    : Hi-Res Audio (1 = mendukung,  0 = tidak)
+      [0..2] : karakter suara [bass, balance, treble]  (one-hot)
+      [3]    : ANC                                  (1/0, dinetralkan)
+      [4]    : gaming                               (1/0, dinetralkan)
+      [5]    : battery_tier                         [0..1]
+      [6]    : water_tier                           [0..1], dinetralkan
 
-    Tiga angka pertama dikalikan bobot suara (lihat WEIGHTS) supaya
-    karakter suara lebih berpengaruh ke skor akhir.
+    Skor hanya dihitung dari preferensi yang benar-benar dipilih user (suara,
+    ANC, gaming, baterai, ketahanan air). Bluetooth dan codec TIDAK masuk
+    vektor cosine. Konsekuensinya, produk yang memenuhi seluruh preferensi
+    user secara sempurna dapat mencapai skor mendekati atau sama dengan 100,
+    karena tidak "dihukum" oleh fitur teknis yang tidak pernah diminta user.
+    Bluetooth dan codec tetap ditampilkan sebagai informasi spesifikasi.
 
-    Catatan tentang dimensi Hi-Res Audio:
-        Nilai user diambil dari input preferensi Hi-Res Audio di form.
-        Untuk produk, nilai hires diambil dari deteksi otomatis field codec
-        di database.
-
-    Baterai dan ketahanan air TIDAK dimasukkan ke vektor karena sudah
-    dipakai sebagai filter keras sebelum perhitungan kemiripan — lihat
-    bagian /recommend.
+    Trik netralisasi:
+      - ANC & gaming dinetralkan (jadi 0) saat user pilih "Tidak", supaya
+        produk tidak dihukum karena punya fitur ekstra yang user tidak butuh.
+      - Water dinetralkan saat user pilih "none".
     """
-    suara_vec = [v * WEIGHTS["suara"] for v in SUARA_VEC.get(suara, [0.0, 0.0, 0.0])]
+    suara_vec = SUARA_VEC.get(suara, [0.0, 0.0, 0.0])
     return [
         *suara_vec,
-        (1.0 if anc else 0.0) * WEIGHTS["anc"],
-        (1.0 if gaming else 0.0) * WEIGHTS["gaming"],
-        (1.0 if hires else 0.0) * WEIGHTS["hires"],
+        1.0 if anc else 0.0,
+        1.0 if gaming else 0.0,
+        battery_score,
+        water_score if water_active else 0.0,
     ]
 
 
 # ─────────────────────────────────────────────
-#  RUMUS KEMIRIPAN (Cosine Similarity)
+#  COSINE SIMILARITY
 # ─────────────────────────────────────────────
 
 def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-    """
-    Menghitung tingkat kemiripan antara dua deretan angka (vektor)
-    menggunakan rumus cosine similarity.
-
-    Cara kerjanya: bayangkan dua vektor sebagai dua panah. Cosine similarity
-    mengukur sudut di antara keduanya:
-      - 1.0 = sudutnya 0° (panah menunjuk arah yang sama persis = mirip)
-      - 0.0 = sudutnya 90° (tidak ada kesamaan)
-
-    Rumus matematis:
-        cos(θ) = (A · B) / (|A| × |B|)
-      yaitu: hasil kali tiap pasangan angka dijumlahkan, lalu dibagi
-      panjang masing-masing vektor.
-
-    Edge case: kalau salah satu vektor berisi nol semua, dianggap 0.0
-    supaya tidak terjadi pembagian dengan nol.
-    """
     dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
     magnitude_a = math.sqrt(sum(a ** 2 for a in vec_a))
     magnitude_b = math.sqrt(sum(b ** 2 for b in vec_b))
-
     if magnitude_a == 0.0 or magnitude_b == 0.0:
         return 0.0
-
     return dot_product / (magnitude_a * magnitude_b)
 
 
@@ -297,104 +335,52 @@ def _compute_score(
     product: dict,
     preference: UserPreferenceModel,
     user_vector: list[float],
+    water_active: bool,
 ) -> tuple[float, int, list[str]]:
     """
-    Menghitung seberapa cocok satu produk dengan preferensi pengguna.
+    Hitung kemiripan satu produk vs preferensi user.
 
-    Skor cocok dihitung dengan cosine similarity (0.0 - 1.0), lalu
-    dikalikan 100 untuk ditampilkan ke user (jadi 0 - 100).
-
-    Parameter:
-        product      : data produk dari MongoDB
-        preference   : preferensi user yang dikirim dari form
-        user_vector  : vektor preferensi user yang sudah dihitung sekali
-                       di endpoint, dipakai ulang biar lebih efisien
-
-    Return:
-        (cosine_raw, display_score, alasan)
-        - cosine_raw   : skor mentah 0.0 - 1.0 (dipakai untuk pengurutan)
-        - display_score: skor 0 - 100 untuk ditampilkan ke user
-        - alasan       : daftar kalimat penjelasan kenapa produk ini cocok
+    Return: (cosine_raw [0..1], display_score [0..100], alasan)
     """
-    # Penanganan netral untuk ANC dan gaming:
-    #
-    # Saat user pilih "Tidak" di form (anc=False atau gaming=False), itu
-    # diartikan sebagai "tidak butuh fitur tersebut", BUKAN "aktif menolak".
-    # Karena itu, produk yang punya fitur tersebut tidak boleh dihukum
-    # skornya — fitur itu cukup dianggap sebagai bonus yang netral.
-    #
-    # Trik implementasinya: kalau user tidak butuh, paksa nilai produk
-    # untuk dimensi itu jadi 0. Karena vektor user juga 0 di dimensi
-    # tersebut, dimensi ini tidak akan mempengaruhi cosine similarity
-    # sama sekali (tidak menambah/mengurangi skor produk apapun).
-    #
-    # Untuk Hi-Res Audio, preferensi user menentukan apakah dimensi ini
-    # ikut memengaruhi skor. Produk yang mendukung Hi-Res Audio mendapat
-    # kontribusi positif saat user memilih Ya di form.
-    product_hires = _is_hires_codec(product.get("codec"))
     product_vector = _build_vector(
         suara=product["karakter_suara"],
         anc=preference.anc and bool(product["anc"]),
         gaming=preference.gaming and bool(product["gaming"]),
-        hires=preference.hires and product_hires,
+        battery_score=_battery_tier(float(product["battery_hours"])),
+        water_score=_water_tier(product.get("water_resistance")),
+        water_active=water_active,
     )
 
     cosine_raw = _cosine_similarity(user_vector, product_vector)
     display_score = round(cosine_raw * 100)
 
-    # Alasan kesesuaian dibuat dengan kalimat yang mudah dimengerti user.
-    # Lebih ramah daripada menampilkan angka cosine mentah.
+    # Alasan berfokus pada KECOCOKAN dengan preferensi user, bukan
+    # mengulang data spesifikasi (sudah ditampilkan di spec grid frontend).
     alasan: list[str] = []
 
+    # Karakter suara — selalu tampil sebagai indikator kecocokan
     if product["karakter_suara"] == preference.karakter_suara:
-        alasan.append(f"Karakter suara sesuai preferensi ({preference.karakter_suara})")
-    elif product["karakter_suara"] == "balance" or preference.karakter_suara == "balance":
-        alasan.append(
-            f"Karakter suara {product['karakter_suara']} "
-            f"(berdekatan dengan preferensimu: {preference.karakter_suara})"
-        )
+        alasan.append(f"Suara {preference.karakter_suara} sesuai")
     else:
-        alasan.append(
-            f"Karakter suara {product['karakter_suara']} "
-            f"(berseberangan dari preferensimu: {preference.karakter_suara})"
-        )
+        alasan.append(f"Suara {product['karakter_suara']} (beda preferensimu)")
 
-    # Baterai sudah disaring di tahap awal (semua kandidat pasti memenuhi),
-    # tapi alasannya tetap ditampilkan supaya user tahu produknya lolos.
+    # Baterai — konfirmasi produk memenuhi kebutuhan minimal user
     alasan.append(
-        f"Baterai {product['battery_hours']} jam memenuhi kebutuhan minimal "
-        f"{preference.min_battery_hours} jam"
+        f"Baterai {product['battery_hours']} jam "
+        f"(memenuhi minimal {int(preference.min_battery_hours)} jam)"
     )
 
-    if preference.anc and product["anc"]:
-        alasan.append("Memiliki fitur ANC sesuai kebutuhanmu")
-    elif preference.anc and not product["anc"]:
-        alasan.append("Tidak memiliki ANC (kamu menginginkan ANC)")
+    # ANC — hanya tampil kalau user memang minta
+    if preference.anc:
+        alasan.append("ANC tersedia" if product["anc"] else "Tanpa ANC")
 
-    if preference.gaming and product["gaming"]:
-        alasan.append("Mendukung mode gaming (latensi rendah)")
-    elif preference.gaming and not product["gaming"]:
-        alasan.append("Tidak mendukung mode gaming")
+    # Gaming — hanya tampil kalau user memang minta
+    if preference.gaming:
+        alasan.append("Mode gaming" if product["gaming"] else "Tanpa mode gaming")
 
-    # Hi-Res Audio hanya ditampilkan kalau produk memang mendukung.
-    # Kalau tidak punya, jangan tampilkan alasan negatif supaya tidak
-    # membingungkan user awam yang tidak paham soal codec.
-    if product_hires:
-        alasan.append(
-            f"Mendukung Hi-Res Audio ({product.get('codec', '-')}) untuk kualitas audio lebih baik"
-        )
-
-    # Ketahanan air: alasannya cuma ditampilkan kalau user memang minta
-    # (basic/sport). Sama seperti baterai, ini sudah disaring di awal.
+    # Water — hanya tampil kalau user pilih basic/sport (filter sudah lolos)
     if preference.water_resistance != "none":
-        pref_label = {
-            "basic": "anti keringat ringan (IPX4+)",
-            "sport": "olahraga / outdoor (IPX5 atau IP54+)",
-        }.get(preference.water_resistance, preference.water_resistance)
-        alasan.append(
-            f"Rating {product.get('water_resistance', '-')} "
-            f"memenuhi kebutuhan {pref_label}"
-        )
+        alasan.append(f"Tahan air {product.get('water_resistance', '-')}")
 
     return cosine_raw, display_score, alasan
 
@@ -404,33 +390,30 @@ def _compute_score(
 # ─────────────────────────────────────────────
 
 @app.post("/recommend")
-def recommend_tws(preference: UserPreferenceModel, top_n: int = 3):
+def recommend_tws(
+    preference: UserPreferenceModel,
+    top_n: int = Query(5, ge=1, le=20),
+):
     """
-    Endpoint utama rekomendasi TWS.
+    Rekomendasi TWS.
 
-    Metode yang dipakai: Content-Based Filtering (CBF) dengan rumus cosine
-    similarity. Singkatnya: bandingkan preferensi user dengan tiap produk,
-    lalu urutkan dari yang paling cocok.
+    Pendekatan: hybrid constraint-based + content-based filtering.
 
-    Alur kerjanya:
-      1. Saring dulu produk pakai "filter keras" — yang melanggar budget,
-         baterai minimal, atau ketahanan air langsung dibuang.
-      2. Bangun vektor preferensi user (dihitung sekali di awal).
-      3. Untuk tiap produk yang lolos, hitung kemiripannya dengan vektor user.
-      4. Urutkan dari skor tertinggi, ambil top_n teratas.
+    Hard constraint (filter awal — produk yang gagal langsung dibuang):
+      - Budget          (harga ≤ budget)
+      - Min battery     (battery_hours ≥ min_battery_hours)
+      - Water minimum   (rating IP memenuhi ambang basic/sport, di-parse
+                         langsung dari string water_resistance)
 
-    Pembagian fitur:
+    Soft preference (masuk vektor cosine, 7 dimensi, tanpa pembobotan manual):
+      - Karakter suara  [3 dim one-hot: bass, balance, treble]
+      - ANC             (dinetralkan kalau user tidak butuh)
+      - Gaming          (dinetralkan kalau user tidak butuh)
+      - Battery tier    (capped min-max ke 50 jam)
+      - Water tier      (normalisasi IEC 60529, dinetralkan kalau "none")
 
-    Fitur yang dipakai untuk menghitung kemiripan ("soft preference"):
-      - Karakter suara (fuzzy: low / mid / high)  — dari input user
-      - ANC (Ya/Tidak)                            — dari input user
-      - Gaming mode (Ya/Tidak)                    — dari input user
-      - Hi-Res Audio (Ya/Tidak)                   — dari input user
-
-    Fitur yang dipakai sebagai filter keras ("hard constraint"):
-      - Budget (harga produk harus ≤ budget user)
-      - Baterai (jam baterai produk harus ≥ kebutuhan minimal user)
-      - Ketahanan air (rating IP produk harus ≥ ambang yang user pilih)
+    Bluetooth dan codec TIDAK masuk perhitungan skor; keduanya hanya
+    ditampilkan sebagai informasi spesifikasi pada hasil rekomendasi.
     """
     products = list(tws_collection.find())
 
@@ -442,61 +425,36 @@ def recommend_tws(preference: UserPreferenceModel, top_n: int = 3):
             "pesan": "Belum ada produk di database."
         }
 
-    # Hitung vektor user sekali saja di sini, supaya tidak diulang-ulang
-    # untuk setiap produk di dalam loop (lebih efisien).
-    #
-    # Catatan dimensi Hi-Res Audio: nilai user diambil dari input form.
-    # Kalau user memilih Ya, produk dengan Hi-Res Audio mendapat kecocokan
-    # lebih tinggi dibanding produk tanpa Hi-Res Audio.
+    water_active = preference.water_resistance != "none"
+
     user_vector = _build_vector(
         suara=preference.karakter_suara,
         anc=preference.anc,
         gaming=preference.gaming,
-        hires=preference.hires,
+        battery_score=1.0,
+        water_score=1.0,
+        water_active=water_active,
     )
 
     candidates = []
 
     for product in products:
-        # ── Filter 1: Budget ──────────────────────────────────────────────
-        # Produk yang lebih mahal dari budget user langsung dibuang.
-        # Budget itu batasan mutlak — tidak bisa dikompromikan dengan skor.
+        # ── Hard filter 1: Budget ───────────────────────────────────────
         if product["harga"] > preference.budget:
             continue
 
-        # ── Filter 2: Baterai ─────────────────────────────────────────────
-        # Baterai dipakai sebagai filter keras (bukan dimasukkan ke vektor)
-        # karena artinya beda:
-        #   - User input "baterai minimal X jam" (kebutuhan minimum)
-        #   - Produk punya "baterai aktual Y jam" (nilai sebenarnya)
-        #
-        # Kalau dipaksakan masuk vektor, dua angka yang artinya beda akan
-        # dibandingkan langsung — hasilnya tidak bermakna. Lebih jelas
-        # kalau langsung: produk dengan baterai < kebutuhan = buang.
+        # ── Hard filter 2: Baterai minimum ──────────────────────────────
         if product["battery_hours"] < preference.min_battery_hours:
             continue
 
-        # ── Filter 3: Ketahanan Air ───────────────────────────────────────
-        # Sama logikanya dengan baterai. User pilih "basic" atau "sport"
-        # sebagai kebutuhan minimum, lalu produk yang ratingnya di bawah
-        # ambang akan dibuang.
-        #
-        # Cara kerjanya:
-        #   1. Ambil angka ambang dari WATER_MIN_THRESHOLD (basic = 4, dst).
-        #   2. Ambil angka rating produk dari WATER_HIERARCHY.
-        #   3. Kalau produk < ambang, buang.
-        required_level = WATER_MIN_THRESHOLD.get(
-            preference.water_resistance, 0
-        )
-        if required_level > 0:
-            product_level = WATER_HIERARCHY.get(
-                product.get("water_resistance", ""), 0
-            )
-            if product_level < required_level:
-                continue
+        # ── Hard filter 3: Water minimum ────────────────────────────────
+        if not _passes_water_requirement(
+            product.get("water_resistance"), preference.water_resistance
+        ):
+            continue
 
         cosine_raw, display_score, alasan = _compute_score(
-            product, preference, user_vector
+            product, preference, user_vector, water_active
         )
 
         candidates.append({
@@ -506,7 +464,7 @@ def recommend_tws(preference: UserPreferenceModel, top_n: int = 3):
             "harga": product["harga"],
             "image_url": product.get("image_url"),
             "skor": display_score,
-            "_cosine_raw": cosine_raw,  # dipakai untuk pengurutan, tidak dikirim ke frontend
+            "_cosine_raw": cosine_raw,
             "alasan": alasan,
             "spesifikasi": {
                 "karakter_suara": product["karakter_suara"],
@@ -515,7 +473,6 @@ def recommend_tws(preference: UserPreferenceModel, top_n: int = 3):
                 "gaming": product["gaming"],
                 "bluetooth_version": product.get("bluetooth_version"),
                 "codec": product.get("codec"),
-                "is_hires": _is_hires_codec(product.get("codec")),
                 "water_resistance": product.get("water_resistance"),
                 "driver_size": product.get("driver_size"),
                 "mic_count": product.get("mic_count"),
@@ -531,8 +488,8 @@ def recommend_tws(preference: UserPreferenceModel, top_n: int = 3):
         ]
         if preference.water_resistance != "none":
             water_label = {
-                "basic": "rating anti keringat (IPX4+)",
-                "sport": "rating olahraga (IPX5 atau IP54+)",
+                "basic": "rating anti keringat (air IPX4+)",
+                "sport": "rating olahraga (air IPX5+ atau tahan debu IP54+)",
             }.get(preference.water_resistance, preference.water_resistance)
             constraint_parts.append(water_label)
 
@@ -546,31 +503,18 @@ def recommend_tws(preference: UserPreferenceModel, top_n: int = 3):
             )
         }
 
-    # Urutkan kandidat dari skor tertinggi.
-    #
-    # Catatan: kita pakai cosine_raw (angka asli 0.0-1.0) untuk pengurutan,
-    # BUKAN display_score yang sudah dibulatkan jadi 0-100. Kalau pakai
-    # yang dibulatkan, banyak produk akan terlihat seri padahal sebenarnya
-    # ada selisih kecil di angka mentahnya.
-    #
-    # Penyelesaian seri (tie-breaker):
-    #   Cosine similarity sering menghasilkan angka yang sama persis karena
-    #   fitur yang dibandingkan jumlahnya sedikit (cuma 3 fitur kategorikal).
-    #   Saat dua produk seri, kita pilih yang harganya PALING DEKAT dengan
-    #   budget user.
-    #
-    # Alasannya:
-    #   Budget yang user input bukan cuma batas maksimum — itu juga sinyal
-    #   "kemampuan dan kemauan bayar". Di pasar TWS, biasanya harga lebih
-    #   tinggi = kualitas lebih bagus (driver lebih besar, Hi-Res Audio,
-    #   ANC lebih efektif). Jadi di antara produk yang sama-sama cocok
-    #   secara preferensi, sistem memilih yang paling memaksimalkan budget
-    #   user — bukan yang termurah meriah.
+    # Urut by cosine mentah (bukan display_score yang sudah dibulatkan).
+    # Tie-breaker dibuat lengkap agar hasil tidak bergantung pada urutan MongoDB.
     candidates.sort(
-        key=lambda x: (-x["_cosine_raw"], abs(preference.budget - x["harga"]))
+        key=lambda x: (
+            -x["_cosine_raw"],
+            x["harga"],
+            str(x["brand"]).casefold(),
+            str(x["nama"]).casefold(),
+            str(x["id"]),
+        )
     )
 
-    # Hapus _cosine_raw sebelum dikirim ke client
     top_recommendations = []
     for item in candidates[:top_n]:
         item.pop("_cosine_raw", None)

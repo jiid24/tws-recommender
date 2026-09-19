@@ -26,6 +26,5 @@ class UserPreferenceModel(BaseModel):
     min_battery_hours: float = Field(ge=0)
     anc: bool
     gaming: bool
-    hires: bool = False
     budget: int = Field(gt=0)
     water_resistance: Literal["none", "basic", "sport"] = "none"
