@@ -105,7 +105,9 @@ def get_all_tws(
     `total_data` selalu berisi jumlah keseluruhan produk di basis data.
     """
     total = tws_collection.count_documents({})
-    cursor = tws_collection.find().skip(skip)
+    # Urutan stabil berdasarkan _id (urutan insert) supaya paginasi
+    # skip/limit tidak berubah-ubah antar permintaan.
+    cursor = tws_collection.find().sort("_id", 1).skip(skip)
     if limit:
         cursor = cursor.limit(limit)
     data = []
@@ -131,9 +133,11 @@ def get_tws_by_id(product_id: str):
 # lingkup penelitian (produk di bawah Rp1.000.000) dan memakai batas yang sama
 # dengan filter harga pada katalog frontend (300rb / 600rb).
 def _price_tier(harga: int) -> str:
-    if harga <= 300_000:
+    # Batas atas tiap tier eksklusif (<), sama dengan filter harga katalog
+    # frontend agar produk Rp300.000/Rp600.000 tidak pindah kelompok.
+    if harga < 300_000:
         return "low"
-    if harga <= 600_000:
+    if harga < 600_000:
         return "mid"
     return "high"
 
@@ -178,6 +182,9 @@ def add_tws(product: TWSModel):
     if existing_product:
         raise HTTPException(status_code=400, detail="Produk dengan nama dan brand tersebut sudah ada.")
     result = tws_collection.insert_one(product_dict)
+    # insert_one menambahkan _id (ObjectId) ke dict yang di-insert; konversi
+    # ke string agar respons bisa diserialisasi dan konsisten dengan endpoint GET.
+    product_dict["_id"] = str(result.inserted_id)
     return {
         "message": "Produk berhasil ditambahkan",
         "inserted_id": str(result.inserted_id),
