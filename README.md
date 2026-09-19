@@ -2,25 +2,23 @@
 
 ![Tampilan halaman beranda](docs/screenshots/beranda.png)
 
-TWS Recommender adalah proyek iseng-isengan yang berangkat dari masalah sehari-hari: milih earbuds di marketplace itu membingungkan. Pilihannya banyak, spesifikasi tidak pernah ditulis sejajar, dan kita sering cuma butuh beberapa hal tertentu — suara bass, baterai awet, atau yang aman buat olahraga.
-
-Aplikasi ini mencoba merapikan masalah itu untuk lingkup yang lebih sempit: **TWS di bawah Rp1 juta**. Pengguna mengisi preferensi (karakter suara, daya tahan baterai, ANC, mode gaming, ketahanan air, dan budget), sistem mencocokkannya dengan spesifikasi tiap produk, lalu menampilkan lima rekomendasi teratas beserta alasan singkatnya.
+TWS Recommender adalah aplikasi web yang membantu menemukan earbuds True Wireless Stereo (TWS) sesuai kebutuhan, dengan lingkup produk di bawah Rp1 juta. Alih-alih membandingkan spesifikasi satu per satu, pengguna cukup mengisi preferensi — karakter suara, daya tahan baterai, ANC, mode gaming, ketahanan air, dan anggaran — lalu sistem mencocokkannya dengan spesifikasi setiap produk dan menampilkan lima rekomendasi teratas beserta alasan singkatnya.
 
 ![Contoh hasil rekomendasi](docs/screenshots/rekomendasi.png)
 
-Selain halaman rekomendasi, ada katalog untuk menelusuri seluruh produk (pencarian, filter harga dan brand, urutkan), halaman detail tiap produk, dan FAQ singkat soal istilah-istilah yang sering muncul di spesifikasi TWS.
+Selain halaman rekomendasi, tersedia katalog untuk menelusuri seluruh produk (pencarian, filter harga dan brand, pengurutan), halaman detail setiap produk, serta FAQ singkat mengenai istilah yang sering muncul pada spesifikasi TWS.
 
 ## Cara Kerja
 
-Rekomendasi dihitung di backend dengan pendekatan **content-based filtering** yang dibagi dua tahap:
+Rekomendasi dihitung di backend dengan pendekatan **content-based filtering** yang terbagi dua tahap:
 
-1. **Penyaringan (hard constraint)** — produk yang harganya melebihi budget, baterainya di bawah minimum, atau ketahanan airnya tidak memenuhi langsung disingkirkan.
-2. **Penilaian kemiripan** — produk yang lolos diubah menjadi vektor 7 dimensi (karakter suara one-hot `[bass, balance, treble]`, ANC, gaming, baterai, ketahanan air), lalu dihitung **cosine similarity**-nya terhadap vektor preferensi pengguna. Skor ini yang ditampilkan sebagai persentase kecocokan.
+1. **Penyaringan (hard constraint)** — produk yang harganya melebihi anggaran, baterainya di bawah minimum, atau ketahanan airnya tidak memenuhi langsung disingkirkan.
+2. **Penilaian kemiripan** — produk yang lolos direpresentasikan sebagai vektor 7 dimensi (karakter suara one-hot `[bass, balance, treble]`, ANC, gaming, baterai, ketahanan air), lalu dihitung **cosine similarity**-nya terhadap vektor preferensi pengguna. Skor inilah yang ditampilkan sebagai persentase kecocokan.
 
 Beberapa keputusan desain di baliknya:
 
-- Rating IP di-parse langsung dari stringnya mengikuti standar IEC 60529 (mis. `IP54` → debu 5, air 4), jadi tidak bergantung pada tabel yang berisiko lupa diperbarui.
-- Fitur yang tidak diminta pengguna "dinetralkan" agar tidak menurunkan skor — produk dengan fitur ekstra tidak dihukum.
+- Rating IP di-parse langsung dari stringnya mengikuti standar IEC 60529 (mis. `IP54` → debu 5, air 4), sehingga tidak bergantung pada tabel yang berisiko lupa diperbarui.
+- Fitur yang tidak diminta pengguna dinetralkan agar tidak menurunkan skor, sehingga produk dengan fitur tambahan tidak dihukum.
 - Bluetooth dan codec tidak ikut dalam perhitungan skor; keduanya hanya ditampilkan sebagai informasi pelengkap.
 
 ## Teknologi
@@ -100,5 +98,5 @@ Frontend berjalan di `http://localhost:3000`.
 
 ## Catatan
 
-- Dataset `tws.json` dan gambar produk sengaja tidak disertakan di repo. Skrip seed membaca file tersebut dari root project, jadi siapkan datamu sendiri bila ingin mencoba — formatnya array of objects dengan skema yang sama seperti model `TWSModel` di `backend/app/models.py`.
-- Ada skrip pengecekan layout sederhana untuk halaman-halaman utama (butuh `playwright` Python serta backend dan frontend yang sedang berjalan): `python frontend/scripts/visual_qa.py`.
+- Dataset `tws.json` dan gambar produk sengaja tidak disertakan di repo. Skrip seed membaca file tersebut dari root project, jadi siapkan data sendiri jika ingin mencoba — formatnya array of objects dengan skema yang sama seperti model `TWSModel` di `backend/app/models.py`.
+- Ada skrip pengecekan layout untuk halaman-halaman utama (butuh `playwright` Python serta backend dan frontend yang sedang berjalan): `python frontend/scripts/visual_qa.py`.
