@@ -6,6 +6,12 @@
   --primary: #7c3aed;
   --primary-dark: #6d28d9;
   --primary-light: #f5f3ff;
+  --color-text-muted: #64748b;
+  --color-text-subtle: #475569;
+  --radius-card: 1rem;
+  --shadow-card: 0 8px 24px -12px rgba(124, 58, 237, 0.15);
+  --shadow-card-hover: 0 12px 32px -12px rgba(124, 58, 237, 0.3);
+  --content-max-width: 72rem;
   --font-display: var(--font-inter-tight), 'Inter', system-ui, -apple-system, sans-serif;
   --font-body: var(--font-inter), system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
@@ -74,6 +80,34 @@ a {
   font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: -0.025em;
+}
+
+.ui-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid #ddd6fe;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.7);
+  padding: 0.5rem 1rem;
+  color: #6d28d9;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 1rem;
+  text-transform: uppercase;
+  backdrop-filter: blur(4px);
+}
+
+/* Minimum practical caption size and readable muted text on light surfaces. */
+main .text-\[10px\],
+main .text-\[11px\] {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+main .text-slate-400 {
+  color: var(--color-text-muted);
 }
 
 .grid-pattern {

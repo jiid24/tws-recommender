@@ -18,5 +18,4 @@ export type Product = {
   mic_count?: number;
   charging_port?: string;
   deskripsi?: string;
-  _source?: string;
 };

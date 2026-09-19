@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { Fragment, useId, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, MessageCircleQuestion, ArrowUpRight } from "lucide-react";
+import { Plus } from "lucide-react";
+import SectionEyebrow from "../../components/ui/SectionEyebrow";
 
 type FaqItem = {
   q: string;
@@ -25,7 +25,7 @@ const faqs: FaqItem[] = [
   {
     category: "Dasar & Audio",
     q: "Apa itu codec SBC, AAC, LDAC, LHDC, aptX, dan LC3?",
-    a: "Codec adalah metode kompresi yang digunakan saat data audio dikirim melalui bluetooth. Beberapa codec yang umum dijumpai pada spesifikasi:\n\n• SBC — codec dasar yang didukung seluruh TWS.\n• AAC — lebih efisien dan bekerja paling optimal pada iPhone.\n• LDAC, LHDC, aptX Adaptive, aptX Lossless — codec hi-res dengan kualitas mendekati CD.\n• LC3 — codec generasi baru yang lebih hemat daya.\n• SSC — codec milik Samsung untuk lini Galaxy Buds.\n\nPerbedaan codec hi-res baru terasa apabila sumber musik yang digunakan juga hi-res, seperti Tidal atau Apple Music Lossless. Pada layanan streaming biasa, perbedaannya cenderung tidak signifikan.",
+    a: "Codec adalah metode kompresi yang digunakan saat data audio dikirim melalui bluetooth. Beberapa codec yang umum dijumpai pada spesifikasi:\n\n• SBC — codec dasar yang didukung seluruh TWS.\n• AAC — lebih efisien dan bekerja paling optimal pada iPhone.\n• LDAC, LHDC, aptX Adaptive, aptX Lossless — codec audio lanjutan dengan bitrate atau efisiensi kompresi lebih baik.\n• LC3 — codec generasi baru yang lebih hemat daya.\n• SSC — codec milik Samsung untuk lini Galaxy Buds.\n\nPerbedaan codec lanjutan baru terasa apabila sumber musik dan perangkat pemutar juga mendukung kualitas audio yang sesuai. Pada layanan streaming biasa, perbedaannya cenderung tidak signifikan.",
   },
   {
     category: "Fitur & Teknologi",
@@ -45,12 +45,22 @@ const faqs: FaqItem[] = [
   {
     category: "Ketahanan & Daya",
     q: "Apa arti rating IPX4, IP54, dan IP68?",
-    a: "Format penulisan rating adalah IP[debu][air]. Angka pertama menunjukkan tingkat ketahanan terhadap debu (0–6), angka kedua ketahanan terhadap air (0–9). Huruf 'X' berarti aspek tersebut tidak diuji.\n\n• IPX4 — tahan keringat dan cipratan, memadai untuk olahraga ringan.\n• IP54 / IP55 — tahan debu ringan serta cipratan dan semprotan air.\n• IP57 — dapat direndam sebentar pada kedalaman 1 meter selama 30 menit.\n• IP68 — tahan debu sepenuhnya dan dapat direndam lebih dalam dalam waktu lebih lama.",
+    a: "Format penulisan rating adalah IP[debu][air]. Angka pertama menunjukkan tingkat ketahanan terhadap debu (0–6), angka kedua ketahanan terhadap air (0–8). Huruf 'X' berarti aspek tersebut tidak diuji.\n\n• IPX4 — tahan keringat dan cipratan, memadai untuk olahraga ringan.\n• IP54 / IP55 — tahan debu ringan serta cipratan dan semprotan air.\n• IP57 — dapat direndam sebentar pada kedalaman 1 meter selama 30 menit.\n• IP68 — tahan debu sepenuhnya dan dapat direndam lebih dalam dalam waktu lebih lama.",
   },
   {
     category: "Ketahanan & Daya",
     q: "Apakah klaim baterai pada spesifikasi mencakup case?",
     a: "Angka besar yang dicantumkan pada spesifikasi umumnya merupakan total pemakaian, termasuk pengisian ulang dari case.\n\nEarbud itu sendiri biasanya bertahan 5–10 jam. Sisa daya berasal dari case yang berfungsi sebagai baterai cadangan dan mampu mengisi ulang earbud sebanyak 2–4 kali sebelum case perlu diisi ulang.",
+  },
+  {
+    category: "Sistem Rekomendasi",
+    q: "Bagaimana cara kerja sistem rekomendasi ini?",
+    a: "Rekomendasi disusun melalui dua tahap.\n\n• Penyaringan — produk yang harganya melebihi anggaran, daya tahan baterainya kurang dari batas minimal, atau ketahanan airnya tidak memenuhi pilihanmu akan disingkirkan lebih dulu.\n• Penilaian kemiripan — produk yang lolos kemudian dibandingkan dengan preferensimu menggunakan metode Content-Based Filtering. Karakter suara, ANC, mode gaming, daya tahan baterai, dan ketahanan air diubah menjadi angka, lalu tingkat kemiripannya dihitung dengan Cosine Similarity.\n\nHasilnya diurutkan dari yang paling cocok, dan lima produk teratas ditampilkan beserta alasan singkat mengapa produk tersebut direkomendasikan.",
+  },
+  {
+    category: "Sistem Rekomendasi",
+    q: "Apa arti label kesesuaian pada hasil rekomendasi?",
+    a: "Label kesesuaian menunjukkan tingkat kecocokan produk dengan preferensi yang kamu isi. Label Sangat Sesuai diberikan untuk skor minimal 90, Sesuai untuk skor 75 sampai 89, Cukup Sesuai untuk skor 60 sampai 74, dan Kurang Sesuai untuk skor di bawah 60.\n\nSkor dihitung dari preferensi yang kamu pilih. Fitur yang tidak kamu minta tidak akan menurunkan skor, sedangkan versi Bluetooth dan codec hanya ditampilkan sebagai informasi tambahan.",
   },
 ];
 
@@ -81,12 +91,8 @@ export default function FaqPage() {
             }}
             className="max-w-2xl"
           >
-            <motion.div
-              variants={fadeUp}
-              className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700 backdrop-blur-sm"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
-              Pertanyaan Umum
+            <motion.div variants={fadeUp}>
+              <SectionEyebrow>Pertanyaan Umum</SectionEyebrow>
             </motion.div>
 
             <motion.h1
@@ -123,7 +129,7 @@ export default function FaqPage() {
           {faqs.map((item, i) => {
             const showHeader = i === 0 || faqs[i - 1].category !== item.category;
             return (
-              <div key={item.q}>
+              <Fragment key={item.q}>
                 {showHeader && (
                   <motion.li
                     variants={fadeUp}
@@ -140,51 +146,11 @@ export default function FaqPage() {
                 <motion.li variants={fadeUp}>
                   <FaqRow item={item} index={i} />
                 </motion.li>
-              </div>
+              </Fragment>
             );
           })}
         </motion.ul>
 
-        {/* ── CTA bottom ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] as const }}
-          className="relative mt-12 overflow-hidden rounded-2xl bg-slate-950 px-7 py-10 md:px-10 md:py-12"
-        >
-          <div className="pointer-events-none absolute -top-24 left-1/2 h-48 w-[28rem] -translate-x-1/2 rounded-full bg-violet-600/20 blur-3xl" />
-          <div className="pointer-events-none absolute inset-0 opacity-[0.04]" style={{
-            backgroundImage:
-              "linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)",
-            backgroundSize: "28px 28px",
-          }} />
-
-          <div className="relative z-10 flex flex-col items-start gap-6 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-start gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-violet-400/30 bg-violet-500/10 text-violet-300">
-                <MessageCircleQuestion className="h-5 w-5" strokeWidth={1.75} />
-              </span>
-              <div className="max-w-md">
-                <h3 className="font-display text-xl text-white md:text-2xl">
-                  Masih bingung memilih TWS?
-                </h3>
-                <p className="mt-1.5 text-sm leading-6 text-slate-400">
-                  Biarkan sistem mencocokkan preferensi Anda dengan produk yang
-                  paling sesuai.
-                </p>
-              </div>
-            </div>
-
-            <Link
-              href="/recommend"
-              className="group inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-slate-950 transition-all hover:gap-3"
-            >
-              Mulai Rekomendasi
-              <ArrowUpRight className="h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-            </Link>
-          </div>
-        </motion.div>
       </section>
     </main>
   );
@@ -193,6 +159,8 @@ export default function FaqPage() {
 // ── Smooth accordion row ──────────────────────────────────────
 function FaqRow({ item, index }: { item: FaqItem; index: number }) {
   const [open, setOpen] = useState(false);
+  const buttonId = useId();
+  const panelId = useId();
 
   return (
     <div
@@ -204,8 +172,10 @@ function FaqRow({ item, index }: { item: FaqItem; index: number }) {
     >
       <button
         type="button"
+        id={buttonId}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        aria-controls={panelId}
         className="flex w-full cursor-pointer items-center gap-4 px-5 py-5 text-left md:px-6"
       >
         {/* Number */}
@@ -245,6 +215,8 @@ function FaqRow({ item, index }: { item: FaqItem; index: number }) {
         {open && (
           <motion.div
             key="content"
+            id={panelId}
+            aria-labelledby={buttonId}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}

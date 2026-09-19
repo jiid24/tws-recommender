@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { motion, useInView } from "framer-motion";
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import {
   Headphones,
   AudioWaveform,
   BatteryFull,
   ShieldCheck,
   Gamepad2,
+  Droplets,
   ArrowUpRight,
 } from "lucide-react";
+import SectionEyebrow from "../components/ui/SectionEyebrow";
+import { API_BASE_URL } from "../lib/api";
 
 const criteria = [
   {
@@ -33,6 +36,11 @@ const criteria = [
     title: "Mode Gaming",
     desc: "Latensi rendah agar audio tetap sinkron saat bermain game maupun menonton video.",
   },
+  {
+    icon: Droplets,
+    title: "Ketahanan Air",
+    desc: "Pilih tingkat proteksi sesuai aktivitas, dari tahan keringat untuk olahraga hingga tahan cipratan dan semprotan air di luar ruangan.",
+  },
 ];
 
 const steps = [
@@ -54,40 +62,14 @@ const steps = [
 ];
 
 const sampleResults = [
-  { name: "Sony WF-1000XM5", tag: "Balance · ANC" },
-  { name: "Bose QuietComfort Ultra", tag: "Balance · ANC" },
   { name: "Anker Soundcore Liberty 4 NC", tag: "Bass · ANC" },
+  { name: "Xiaomi Redmi Buds 6 Lite", tag: "Bass · ANC" },
+  { name: "Tecno Sonic 2", tag: "Treble · ANC" },
+  { name: "EarFun Air 2", tag: "Treble · Gaming" },
+  { name: "Soundcore K20i", tag: "Treble · Gaming" },
 ];
 
 // ── Animated Counter (counts up when in view) ──
-function AnimatedCounter({
-  value,
-  duration = 1400,
-}: {
-  value: number;
-  duration?: number;
-}) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-50px" });
-  const [display, setDisplay] = useState(0);
-
-  useEffect(() => {
-    if (!isInView) return;
-    const start = performance.now();
-    let raf = 0;
-    const tick = (now: number) => {
-      const progress = Math.min((now - start) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplay(Math.floor(eased * value));
-      if (progress < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [isInView, value, duration]);
-
-  return <span ref={ref}>{display}</span>;
-}
-
 // ── Animation presets ──
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -105,12 +87,41 @@ const stagger = {
 };
 
 export default function HomePage() {
+  // Jumlah produk diambil langsung dari basis data agar tidak basi saat
+  // dataset berubah. Fallback null → tampil "—" sampai data termuat.
+  const [productCount, setProductCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Hanya butuh jumlah total (total_data), jadi minta 1 produk saja —
+    // payload ~1 KB alih-alih mengunduh seluruh katalog (~50 KB).
+    fetch(`${API_BASE_URL}/tws?limit=1`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (cancelled || !json) return;
+        const total =
+          typeof json.total_data === "number"
+            ? json.total_data
+            : Array.isArray(json.products)
+              ? json.products.length
+              : null;
+        if (total !== null) setProductCount(total);
+      })
+      .catch(() => {
+        /* biarkan fallback "—" jika backend tidak tersedia */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="font-body relative bg-white text-slate-900 overflow-hidden">
         {/* ── HERO ── */}
         <section className="relative grid-pattern flex min-h-[calc(100vh-72px)] items-center">
-          <div className="absolute inset-0 bg-linear-to-br from-white via-white/95 to-violet-50/80 pointer-events-none" />
-          <div className="absolute -top-24 left-1/4 h-80 w-80 rounded-full bg-violet-200/25 blur-2xl pointer-events-none" />
+          <div className="absolute inset-0 bg-linear-to-br from-white via-violet-50/40 to-violet-100 pointer-events-none" />
+          <div className="absolute -top-24 left-1/4 h-96 w-96 rounded-full bg-violet-200/40 blur-2xl pointer-events-none" />
+          <div className="absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-violet-300/20 blur-3xl pointer-events-none" />
 
           <div className="relative mx-auto grid max-w-6xl gap-10 px-6 pt-10 pb-12 md:grid-cols-2 md:items-center lg:gap-14">
             {/* Left */}
@@ -120,12 +131,8 @@ export default function HomePage() {
               variants={stagger}
             >
               {/* Badge */}
-              <motion.div
-                variants={fadeUp}
-                className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700 backdrop-blur-sm"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
-                Content-Based Filtering
+              <motion.div variants={fadeUp}>
+                <SectionEyebrow>Content-Based Filtering</SectionEyebrow>
               </motion.div>
 
               {/* Headline */}
@@ -171,22 +178,21 @@ export default function HomePage() {
               >
                 <div>
                   <p className="font-display text-2xl text-slate-900">
-                    <AnimatedCounter value={100} />
-                    <span className="text-violet-600">+</span>
+                    {productCount ?? "—"}
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">Produk TWS</p>
                 </div>
                 <div className="h-8 w-px bg-slate-200" />
                 <div>
                   <p className="font-display text-2xl text-slate-900">
-                    Top <span className="text-violet-600"><AnimatedCounter value={3} duration={900} /></span>
+                    Top <span className="text-violet-600">5</span>
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">Rekomendasi</p>
                 </div>
                 <div className="h-8 w-px bg-slate-200" />
                 <div>
                   <p className="font-display text-2xl text-violet-700">
-                    <AnimatedCounter value={7} duration={900} />
+                    6
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">Parameter Preferensi</p>
                 </div>
@@ -204,13 +210,13 @@ export default function HomePage() {
                 {/* Header */}
                 <div className="mb-5 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
                     <span className="text-xs font-medium text-slate-500">
                       Hasil rekomendasi
                     </span>
                   </div>
                   <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-violet-700">
-                    Top 3
+                    Top 5
                   </span>
                 </div>
 
@@ -272,7 +278,7 @@ export default function HomePage() {
 
         {/* ── CRITERIA ── */}
         <section className="relative overflow-hidden bg-slate-950 py-24 md:py-28">
-          <div className="absolute -top-40 left-1/2 h-72 w-[40rem] -translate-x-1/2 rounded-full bg-violet-600/15 blur-2xl pointer-events-none" />
+          <div className="absolute -top-40 left-1/2 h-72 w-160 -translate-x-1/2 rounded-full bg-violet-600/15 blur-2xl pointer-events-none" />
           <div className="relative mx-auto max-w-6xl px-6">
             <motion.div
               initial="hidden"
@@ -285,15 +291,15 @@ export default function HomePage() {
                 variants={fadeUp}
                 className="font-display text-[1.85rem] leading-tight text-white md:text-[2.25rem]"
               >
-                Empat kriteria utama dalam penilaian rekomendasi.
+                Lima kriteria dalam penilaian rekomendasi.
               </motion.h2>
               <motion.p
                 variants={fadeUp}
                 className="mt-3 text-sm leading-7 text-slate-400"
               >
                 Setiap preferensi dibandingkan dengan spesifikasi tiap produk,
-                didukung parameter pendukung seperti anggaran, ketahanan air,
-                dan codec audio untuk menyusun rekomendasi yang relevan.
+                didukung anggaran sebagai batas penyaringan untuk menyusun
+                rekomendasi yang relevan.
               </motion.p>
             </motion.div>
 
@@ -305,7 +311,7 @@ export default function HomePage() {
                 hidden: {},
                 show: { transition: { staggerChildren: 0.1 } },
               }}
-              className="grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4"
+              className="grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-5"
             >
               {criteria.map((item) => (
                 <motion.div
@@ -390,47 +396,6 @@ export default function HomePage() {
               ))}
             </motion.div>
           </div>
-        </section>
-
-        {/* ── CTA ── */}
-        <section className="mx-auto max-w-6xl px-6 pt-8 pb-24 md:pb-28">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] as const }}
-            className="relative overflow-hidden rounded-2xl bg-slate-950 px-8 py-14 md:px-14 md:py-16"
-          >
-            <div className="absolute -top-32 left-1/2 h-64 w-[36rem] -translate-x-1/2 rounded-full bg-violet-600/20 blur-2xl pointer-events-none" />
-
-            <div className="relative z-10 flex flex-col items-start justify-between gap-8 md:flex-row md:items-end">
-              <div className="max-w-xl">
-                <h2 className="font-display text-[1.85rem] leading-tight text-white md:text-[2.25rem]">
-                  Siap menemukan TWS yang tepat?
-                </h2>
-                <p className="mt-3 text-sm leading-7 text-slate-400">
-                  Tetapkan preferensi Anda untuk menerima rekomendasi yang
-                  sesuai dengan kebutuhan.
-                </p>
-              </div>
-
-              <div className="flex flex-shrink-0 flex-wrap items-center gap-3 md:flex-nowrap">
-                <Link
-                  href="/recommend"
-                  className="group inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-slate-950 transition-all hover:gap-3"
-                >
-                  Mulai Rekomendasi
-                  <ArrowUpRight className="h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-                </Link>
-                <Link
-                  href="/product"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/15 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-white/5"
-                >
-                  Lihat Katalog
-                </Link>
-              </div>
-            </div>
-          </motion.div>
         </section>
     </div>
   );

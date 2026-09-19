@@ -9,7 +9,7 @@ UI sistem rekomendasi True Wireless Stereo (TWS) berbasis preferensi pengguna. D
 - **TypeScript 5**
 - **Tailwind CSS v4** (via `@tailwindcss/postcss`)
 - **lucide-react** — icon set
-- **DM Sans** & **DM Serif Display** — Google Fonts
+- **Inter** & **Inter Tight** — Google Fonts
 
 ## Struktur Folder
 
@@ -19,7 +19,7 @@ frontend/
 │   ├── layout.tsx            # Root layout (Navbar + Footer)
 │   ├── page.tsx              # Landing page
 │   ├── globals.css           # Tailwind + custom utilities
-│   ├── about/                # Halaman penjelasan sistem
+│   ├── faq/                  # FAQ istilah TWS & cara kerja rekomendasi
 │   ├── recommend/            # Form preferensi + hasil rekomendasi
 │   └── product/[id]/         # Detail produk
 ├── components/
@@ -49,15 +49,19 @@ Buat file `.env.local` di folder ini (opsional — ada fallback ke `localhost:80
 
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
 Saat deploy ke production, ganti dengan URL API publik:
 
 ```
 NEXT_PUBLIC_API_URL=https://api.tws-recommender.com
+NEXT_PUBLIC_SITE_URL=https://your-frontend-domain.example
 ```
 
 > Variabel **wajib** berawalan `NEXT_PUBLIC_` agar bisa diakses dari browser.
+
+`NEXT_PUBLIC_SITE_URL` dipakai untuk membentuk URL absolut pada metadata dan preview saat link dibagikan.
 
 ## Scripts
 
@@ -67,12 +71,13 @@ NEXT_PUBLIC_API_URL=https://api.tws-recommender.com
 | `npm run build` | Build production |
 | `npm run start` | Jalankan hasil build production |
 | `npm run lint` | ESLint check |
+| `python scripts/visual_qa.py` | Cek layout utama pada 375, 768, 1024, dan 1440 px |
 
 ## Halaman
 
 | Route | Deskripsi |
 |---|---|
 | `/` | Landing page dengan hero & overview fitur |
-| `/recommend` | Form input preferensi → hasil rekomendasi top 3 |
+| `/recommend` | Form input preferensi → hasil rekomendasi top 5 |
 | `/product/[id]` | Detail spesifikasi produk TWS |
-| `/about` | Penjelasan metode Content-Based Filtering & bobot kriteria |
+| `/faq` | FAQ istilah TWS & penjelasan cara kerja rekomendasi |

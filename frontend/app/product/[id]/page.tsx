@@ -17,7 +17,6 @@ import {
   Plug,
   CircleDot,
   Disc3,
-  Loader2,
   Headphones,
   ShieldCheck,
 } from "lucide-react";
@@ -25,20 +24,8 @@ import {
 import { API_BASE_URL } from "../../../lib/api";
 import type { Product } from "../../../lib/types";
 
-const HIRES_REGEX = /(LDAC|LHDC|aptX HD|aptX Adaptive|aptX Lossless|Hi-?Res)/i;
-const HIRES_REGEX_BROAD = /(LDAC|LHDC|aptX|LC3|SSC|L2HC|Hi-?Res)/i;
-
-const PRICE_TIERS = [
-  { key: "budget", label: "Budget", max: 500_000, hint: "≤ Rp 500rb" },
-  { key: "mid", label: "Menengah", max: 1_500_000, hint: "Rp 500rb – 1,5jt" },
-  { key: "premium", label: "Premium", max: 3_000_000, hint: "Rp 1,5jt – 3jt" },
-  { key: "high", label: "High-end", max: 5_000_000, hint: "Rp 3jt – 5jt" },
-  { key: "flagship", label: "Flagship", max: Infinity, hint: "> Rp 5jt" },
-] as const;
-
-function getPriceTier(harga: number) {
-  return PRICE_TIERS.find((t) => harga <= t.max) ?? PRICE_TIERS[PRICE_TIERS.length - 1];
-}
+const ADVANCED_CODEC_REGEX = /(LDAC|LHDC|aptX HD|aptX Adaptive|aptX Lossless|Hi-?Res)/i;
+const ADVANCED_CODEC_REGEX_BROAD = /(LDAC|LHDC|aptX|LC3|SSC|L2HC|Hi-?Res)/i;
 
 const fadeUp = {
   hidden: { opacity: 0, y: 20 },
@@ -132,10 +119,10 @@ function getTargetUsers(product: Product): TargetUser[] {
       iconBg: "bg-emerald-50",
     });
   }
-  if (product.codec && HIRES_REGEX.test(product.codec)) {
+  if (product.codec && ADVANCED_CODEC_REGEX.test(product.codec)) {
     result.push({
-      title: "Audiophile dan pengguna Hi-Res",
-      description: `Mendukung codec ${product.codec} untuk kualitas audio resolusi tinggi dari layanan seperti Tidal atau Apple Music Lossless.`,
+      title: "Dukungan codec produk",
+      description: `Produk ini mencantumkan codec ${product.codec} sebagai bagian dari spesifikasi audio.`,
       icon: Bluetooth,
       iconColor: "text-fuchsia-600",
       iconBg: "bg-fuchsia-50",
@@ -162,7 +149,7 @@ function getTargetUsers(product: Product): TargetUser[] {
       iconBg: "bg-emerald-50",
     });
   }
-  if (product.harga <= 500_000) {
+  if (product.harga <= 300_000) {
     result.push({
       title: "Pencari TWS hemat",
       description:
@@ -171,11 +158,11 @@ function getTargetUsers(product: Product): TargetUser[] {
       iconColor: "text-slate-500",
       iconBg: "bg-slate-100",
     });
-  } else if (product.harga >= 2_500_000) {
+  } else if (product.harga >= 600_000) {
     result.push({
-      title: "Pencari produk premium",
+      title: "Pencari kualitas kelas atas",
       description:
-        "Berada di kelas flagship — material, fitur, dan kualitas suara tingkat atas untuk pengalaman maksimal.",
+        "Berada di tingkat harga teratas pada rentang ini — biasanya menawarkan fitur dan kualitas suara yang lebih matang.",
       icon: CircleDot,
       iconColor: "text-violet-600",
       iconBg: "bg-violet-50",
@@ -183,6 +170,34 @@ function getTargetUsers(product: Product): TargetUser[] {
   }
 
   return result;
+}
+
+function ProductDetailSkeleton() {
+  return (
+    <main className="font-body min-h-screen bg-white" role="status" aria-label="Memuat detail produk">
+      <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
+        <div className="h-9 w-40 animate-pulse rounded-full bg-slate-100" />
+        <div className="mt-8 grid gap-8 lg:grid-cols-[1.3fr_0.7fr]">
+          <div className="space-y-5">
+            <div className="h-4 w-24 animate-pulse rounded bg-slate-100" />
+            <div className="h-12 w-4/5 animate-pulse rounded bg-slate-100" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="h-20 animate-pulse rounded-2xl bg-slate-100" />
+              ))}
+            </div>
+            <div className="h-36 animate-pulse rounded-2xl bg-slate-100" />
+          </div>
+          <div className="h-[27rem] animate-pulse rounded-2xl bg-slate-100" />
+        </div>
+        <div className="mt-12 grid gap-5 lg:grid-cols-2">
+          <div className="h-80 animate-pulse rounded-2xl bg-slate-100" />
+          <div className="h-80 animate-pulse rounded-2xl bg-slate-100" />
+        </div>
+      </div>
+      <span className="sr-only">Memuat detail produk…</span>
+    </main>
+  );
 }
 
 export default function ProductDetailPage() {
@@ -193,6 +208,7 @@ export default function ProductDetailPage() {
   const [related, setRelated] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -200,29 +216,16 @@ export default function ProductDetailPage() {
     const run = async () => {
       try {
         setLoading(true);
-        const [detailRes, listRes] = await Promise.all([
+        // Produk terkait dihitung di server (endpoint /related) sehingga
+        // halaman detail tidak perlu mengunduh seluruh katalog.
+        const [detailRes, relatedRes] = await Promise.all([
           fetch(`${API_BASE_URL}/tws/${id}`, { cache: "no-store" }),
-          fetch(`${API_BASE_URL}/tws`, { cache: "no-store" }),
+          fetch(`${API_BASE_URL}/tws/${id}/related?limit=4`, { cache: "no-store" }),
         ]);
         if (!detailRes.ok) throw new Error("Gagal memuat detail produk");
         const detail: Product = await detailRes.json();
-        const listJson = listRes.ok ? await listRes.json() : { products: [] };
-        const allProducts: Product[] = listJson.products ?? [];
-
-        // Cari produk terkait: utamakan brand sama, lanjut tier harga sama
-        const detailId = detail._id ?? detail.id ?? "";
-        const tier = getPriceTier(detail.harga);
-        const sameBrand = allProducts.filter(
-          (p) =>
-            (p._id ?? p.id) !== detailId && p.brand === detail.brand,
-        );
-        const sameTier = allProducts.filter(
-          (p) =>
-            (p._id ?? p.id) !== detailId &&
-            p.brand !== detail.brand &&
-            getPriceTier(p.harga).key === tier.key,
-        );
-        const combined = [...sameBrand, ...sameTier].slice(0, 4);
+        const relatedJson = relatedRes.ok ? await relatedRes.json() : { products: [] };
+        const combined: Product[] = relatedJson.products ?? [];
 
         if (!cancelled) {
           setProduct(detail);
@@ -239,18 +242,9 @@ export default function ProductDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, reloadKey]);
 
-  if (loading) {
-    return (
-      <main className="font-body relative min-h-screen bg-white">
-        <div className="flex flex-col items-center justify-center gap-3 py-32 text-slate-400">
-          <Loader2 className="h-6 w-6 animate-spin" />
-          <p className="text-sm">Memuat detail produk…</p>
-        </div>
-      </main>
-    );
-  }
+  if (loading) return <ProductDetailSkeleton />;
 
   if (error || !product) {
     return (
@@ -259,9 +253,18 @@ export default function ProductDetailPage() {
           <p className="text-sm font-medium text-red-700">
             {error ?? "Produk tidak ditemukan."}
           </p>
+          {error && (
+            <button
+              type="button"
+              onClick={() => setReloadKey((current) => current + 1)}
+              className="mt-6 inline-flex min-h-11 items-center rounded-full bg-red-700 px-4 text-sm font-semibold text-white transition hover:bg-red-800"
+            >
+              Coba lagi
+            </button>
+          )}
           <Link
             href="/product"
-            className="mt-6 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-violet-200 hover:text-violet-700"
+            className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-violet-200 hover:text-violet-700"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Kembali ke Katalog
@@ -630,7 +633,7 @@ export default function ProductDetailPage() {
             >
               {related.map((p) => {
                 const pid = p._id ?? p.id ?? "";
-                const isHires = p.codec ? HIRES_REGEX_BROAD.test(p.codec) : false;
+                const hasAdvancedCodec = p.codec ? ADVANCED_CODEC_REGEX_BROAD.test(p.codec) : false;
                 return (
                   <motion.div key={pid || p.nama} variants={fadeUp}>
                     <Link
@@ -673,15 +676,15 @@ export default function ProductDetailPage() {
                               <Gamepad2 className="h-3 w-3" strokeWidth={1.75} />
                             </span>
                           )}
-                          {isHires && (
+                          {hasAdvancedCodec && (
                             <span
-                              title="Hi-Res"
+                              title="Codec produk"
                               className="flex h-6 w-6 items-center justify-center rounded-md bg-fuchsia-50 text-fuchsia-600"
                             >
                               <Bluetooth className="h-3 w-3" strokeWidth={1.75} />
                             </span>
                           )}
-                          {!p.anc && !p.gaming && !isHires && (
+                          {!p.anc && !p.gaming && !hasAdvancedCodec && (
                             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-50 text-slate-400">
                               <Headphones className="h-3 w-3" strokeWidth={1.75} />
                             </span>

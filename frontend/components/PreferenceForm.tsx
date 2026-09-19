@@ -8,7 +8,6 @@ import {
   Gamepad2,
   Wallet,
   Droplets,
-  Bluetooth,
   ArrowUpRight,
   Loader2,
 } from "lucide-react";
@@ -19,14 +18,13 @@ type PreferenceFormProps = {
     min_battery_hours: number;
     anc: boolean;
     gaming: boolean;
-    hires: boolean;
     budget: number;
     water_resistance: "none" | "basic" | "sport";
   }) => void;
   loading?: boolean;
 };
 
-const sectionClass = "rounded-2xl border border-slate-100 bg-white p-4 shadow-sm";
+const sectionClass = "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm";
 
 const SectionHeader = ({
   icon: Icon,
@@ -68,24 +66,26 @@ const OptionButton = ({
   <button
     type="button"
     onClick={onClick}
-    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-all ${
+    aria-pressed={isActive}
+    className={`flex flex-col items-center justify-center rounded-xl border px-3 py-2.5 text-center text-sm transition-all ${
+      desc ? "min-h-[4.5rem]" : ""
+    } ${
       isActive
         ? activeClass
         : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
     }`}
   >
-    <div className="text-center font-medium">{label}</div>
-    {desc && <div className="mt-0.5 text-center text-[11px] opacity-70">{desc}</div>}
+    <div className="font-medium">{label}</div>
+    {desc && <div className="mt-0.5 text-[11px] leading-tight opacity-70">{desc}</div>}
   </button>
 );
 
 export default function PreferenceForm({ onSubmit, loading = false }: PreferenceFormProps) {
   const [karakterSuara, setKarakterSuara] = useState<"bass" | "treble" | "balance">("balance");
-  const [minBatteryHours, setMinBatteryHours] = useState(20);
+  const [minBatteryHours, setMinBatteryHours] = useState(15);
   const [anc, setAnc] = useState(false);
   const [gaming, setGaming] = useState(false);
-  const [hires, setHires] = useState(false);
-  const [budget, setBudget] = useState(1000000);
+  const [budget, setBudget] = useState(300000);
   const [waterResistance, setWaterResistance] = useState<"none" | "basic" | "sport">("none");
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -95,22 +95,20 @@ export default function PreferenceForm({ onSubmit, loading = false }: Preference
       min_battery_hours: Number(minBatteryHours),
       anc,
       gaming,
-      hires,
       budget: Number(budget),
       water_resistance: waterResistance,
     });
   };
 
   const BUDGET_MIN = 100000;
-  const BUDGET_MAX = 7000000;
+  const BUDGET_MAX = 1000000;
   const budgetPercent = ((budget - BUDGET_MIN) / (BUDGET_MAX - BUDGET_MIN)) * 100;
 
   const getBudgetCategory = (value: number) => {
-    if (value <= 500000) return { label: "Budget", color: "text-emerald-600" };
-    if (value <= 1500000) return { label: "Menengah", color: "text-blue-600" };
-    if (value <= 3000000) return { label: "Premium", color: "text-violet-600" };
-    if (value <= 5000000) return { label: "High-end", color: "text-fuchsia-600" };
-    return { label: "Flagship", color: "text-amber-600" };
+    if (value <= 250000) return { label: "Entry", color: "text-emerald-600" };
+    if (value <= 500000) return { label: "Budget", color: "text-blue-600" };
+    if (value <= 750000) return { label: "Menengah", color: "text-violet-600" };
+    return { label: "Premium", color: "text-amber-600" };
   };
   const budgetCategory = getBudgetCategory(budget);
 
@@ -121,12 +119,12 @@ export default function PreferenceForm({ onSubmit, loading = false }: Preference
       <div className={sectionClass}>
         <SectionHeader
           icon={Music}
-          iconBg="bg-violet-100"
-          iconColor="text-violet-600"
+          iconBg="bg-slate-100"
+          iconColor="text-slate-600"
           title="Karakter Suara"
           subtitle="Pilih preferensi suara Anda"
         />
-        <div className="grid grid-cols-3 gap-2">
+        <div role="group" aria-label="Karakter suara" className="grid grid-cols-3 gap-2">
           {[
             { value: "bass", label: "Bass", desc: "Nada rendah dominan" },
             { value: "balance", label: "Balance", desc: "Seimbang" },
@@ -148,16 +146,16 @@ export default function PreferenceForm({ onSubmit, loading = false }: Preference
       <div className={sectionClass}>
         <SectionHeader
           icon={Battery}
-          iconBg="bg-emerald-100"
-          iconColor="text-emerald-600"
+          iconBg="bg-slate-100"
+          iconColor="text-slate-600"
           title="Daya Tahan Baterai"
           subtitle="Minimal durasi pemakaian"
         />
-        <div className="grid grid-cols-3 gap-2">
+        <div role="group" aria-label="Daya tahan baterai" className="grid grid-cols-3 gap-2">
           {[
-            { value: 20, label: "20+ Jam", desc: "Harian" },
-            { value: 30, label: "30+ Jam", desc: "Intensif" },
-            { value: 40, label: "40+ Jam", desc: "Perjalanan jauh" },
+            { value: 15, label: "15+ Jam", desc: "Standar" },
+            { value: 30, label: "30+ Jam", desc: "Tahan Lama" },
+            { value: 40, label: "40+ Jam", desc: "Maksimal" },
           ].map((item) => (
             <OptionButton
               key={item.label}
@@ -176,12 +174,12 @@ export default function PreferenceForm({ onSubmit, loading = false }: Preference
         <div className={sectionClass}>
           <SectionHeader
             icon={Shield}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
+            iconBg="bg-slate-100"
+            iconColor="text-slate-600"
             title="Active Noise Cancellation"
             subtitle="Peredam suara bising sekitar"
           />
-          <div className="grid grid-cols-2 gap-2">
+          <div role="group" aria-label="Active Noise Cancellation" className="grid grid-cols-2 gap-2">
             {[{ value: true, label: "Ya" }, { value: false, label: "Tidak" }].map((item) => (
               <OptionButton
                 key={String(item.value)}
@@ -197,12 +195,12 @@ export default function PreferenceForm({ onSubmit, loading = false }: Preference
         <div className={sectionClass}>
           <SectionHeader
             icon={Gamepad2}
-            iconBg="bg-amber-100"
-            iconColor="text-amber-600"
+            iconBg="bg-slate-100"
+            iconColor="text-slate-600"
             title="Mode Gaming"
             subtitle="Latensi rendah untuk game & video"
           />
-          <div className="grid grid-cols-2 gap-2">
+          <div role="group" aria-label="Mode Gaming" className="grid grid-cols-2 gap-2">
             {[{ value: true, label: "Ya" }, { value: false, label: "Tidak" }].map((item) => (
               <OptionButton
                 key={String(item.value)}
@@ -216,41 +214,16 @@ export default function PreferenceForm({ onSubmit, loading = false }: Preference
         </div>
       </div>
 
-      <div className={sectionClass}>
-        <SectionHeader
-          icon={Bluetooth}
-          iconBg="bg-fuchsia-100"
-          iconColor="text-fuchsia-600"
-          title="Hi-Res Audio"
-          subtitle="Codec berkualitas tinggi (LDAC, aptX, dll.)"
-        />
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { value: true, label: "Ya", desc: "Codec premium" },
-            { value: false, label: "Tidak", desc: "Codec standar" },
-          ].map((item) => (
-            <OptionButton
-              key={String(item.value)}
-              isActive={hires === item.value}
-              activeClass="border-fuchsia-400 bg-fuchsia-50 text-fuchsia-700"
-              onClick={() => setHires(item.value)}
-              label={item.label}
-              desc={item.desc}
-            />
-          ))}
-        </div>
-      </div>
-
       {/* Water Resistance */}
       <div className={sectionClass}>
         <SectionHeader
           icon={Droplets}
-          iconBg="bg-cyan-100"
-          iconColor="text-cyan-600"
+          iconBg="bg-slate-100"
+          iconColor="text-slate-600"
           title="Ketahanan Air"
           subtitle="Tingkat proteksi air & debu"
         />
-        <div className="grid grid-cols-3 gap-2">
+        <div role="group" aria-label="Ketahanan air" className="grid grid-cols-3 gap-2">
           {[
             { value: "none", label: "Tidak Perlu", desc: "Pemakaian indoor" },
             { value: "basic", label: "Basic", desc: "Tahan keringat" },
@@ -291,23 +264,31 @@ export default function PreferenceForm({ onSubmit, loading = false }: Preference
         {/* Custom slider track */}
         <div className="relative h-1.5 w-full rounded-full bg-slate-100">
           <div
-            className="absolute left-0 top-0 h-full rounded-full bg-slate-950 transition-all"
+            className="absolute left-0 top-0 h-full rounded-full bg-violet-600 transition-all"
             style={{ width: `${budgetPercent}%` }}
           />
+          {/* Thumb terlihat (dekoratif; input di bawahnya yang menangkap geser) */}
+          <div
+            className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-violet-600 bg-white shadow-sm transition-all"
+            style={{ left: `${budgetPercent}%` }}
+          />
           <input
+            id="budget"
             type="range"
             min={BUDGET_MIN}
             max={BUDGET_MAX}
-            step={100000}
+            step={20000}
             value={budget}
             onChange={(e) => setBudget(Number(e.target.value))}
+            aria-label="Anggaran maksimal"
+            aria-valuetext={`Rp ${budget.toLocaleString("id-ID")}`}
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           />
         </div>
 
         <div className="mt-2 flex justify-between text-[11px] text-slate-400">
           <span>Rp 100.000</span>
-          <span>Rp 7.000.000</span>
+          <span>Rp 1.000.000</span>
         </div>
       </div>
 

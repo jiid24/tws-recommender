@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Headphones, ArrowUpRight, Menu, X } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -17,6 +17,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -24,6 +25,20 @@ export default function Navbar() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   const closeMenu = () => setOpen(false);
 
@@ -47,13 +62,14 @@ export default function Navbar() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden items-center gap-1 md:flex">
+        <nav aria-label="Navigasi utama" className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={isActive ? "page" : undefined}
                 className={`relative rounded-full px-4 py-2 text-sm transition-colors ${
                   isActive
                     ? "font-semibold text-violet-700"
@@ -99,10 +115,12 @@ export default function Navbar() {
           </Link>
           <button
             type="button"
+            ref={menuButtonRef}
             aria-label={open ? "Tutup menu" : "Buka menu"}
             aria-expanded={open}
+            aria-controls="mobile-navigation"
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-violet-300 hover:text-violet-700"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-violet-300 hover:text-violet-700"
           >
             {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
@@ -111,11 +129,13 @@ export default function Navbar() {
 
       {/* Mobile menu panel */}
       <div
+        aria-hidden={!open}
+        inert={!open}
         className={`md:hidden overflow-hidden border-t border-slate-100 bg-white/95 backdrop-blur-xl transition-[max-height,opacity] duration-300 ease-out ${
           open ? "max-h-80 opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <nav className="mx-auto flex max-w-6xl flex-col gap-1 px-6 py-4">
+        <nav aria-label="Navigasi utama (mobile)" id="mobile-navigation" className="mx-auto flex max-w-6xl flex-col gap-1 px-6 py-4">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
             return (
@@ -123,6 +143,7 @@ export default function Navbar() {
                 key={item.href}
                 href={item.href}
                 onClick={closeMenu}
+                aria-current={isActive ? "page" : undefined}
                 className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm transition ${
                   isActive
                     ? "bg-violet-50 font-semibold text-violet-700"
