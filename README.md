@@ -1,45 +1,79 @@
 # TWS Recommender
 
-![Tampilan halaman beranda](docs/screenshots/beranda.png)
+A content-based recommender for True Wireless Stereo (TWS) earbuds under IDR 1,000,000. Users specify a sound signature, minimum battery life, ANC, gaming mode, water resistance, and budget; the backend filters and scores every product in the database, and the UI presents the top 5 matches with per-product reasoning.
 
-TWS Recommender adalah aplikasi web yang membantu menemukan earbuds True Wireless Stereo (TWS) sesuai kebutuhan, dengan lingkup produk di bawah Rp1 juta. Alih-alih membandingkan spesifikasi satu per satu, pengguna cukup mengisi preferensi — karakter suara, daya tahan baterai, ANC, mode gaming, ketahanan air, dan anggaran — lalu sistem mencocokkannya dengan spesifikasi setiap produk dan menampilkan lima rekomendasi teratas beserta alasan singkatnya.
+Two pieces:
 
-![Contoh hasil rekomendasi](docs/screenshots/rekomendasi.png)
+- **`backend/`** — FastAPI + MongoDB. Product CRUD, related-product lookup, and the recommendation engine (constraint filtering + cosine similarity over a 7-dimension feature vector).
+- **`frontend/`** — Next.js 16 (App Router), React 19, Tailwind CSS v4. Catalog with search/filter/sort/pagination, preference form, product detail pages, and FAQ.
 
-Selain halaman rekomendasi, tersedia katalog untuk menelusuri seluruh produk (pencarian, filter harga dan brand, pengurutan), halaman detail setiap produk, serta FAQ singkat mengenai istilah yang sering muncul pada spesifikasi TWS.
+![Home page](docs/screenshots/beranda.png)
 
-## Cara Kerja
+![Recommendation results](docs/screenshots/rekomendasi.png)
 
-Rekomendasi dihitung di backend dengan pendekatan **content-based filtering** yang terbagi dua tahap:
+## Recommendation scoring
 
-1. **Penyaringan (hard constraint)** — produk yang harganya melebihi anggaran, baterainya di bawah minimum, atau ketahanan airnya tidak memenuhi langsung disingkirkan.
-2. **Penilaian kemiripan** — produk yang lolos direpresentasikan sebagai vektor 7 dimensi (karakter suara one-hot `[bass, balance, treble]`, ANC, gaming, baterai, ketahanan air), lalu dihitung **cosine similarity**-nya terhadap vektor preferensi pengguna. Skor inilah yang ditampilkan sebagai persentase kecocokan.
+Scoring runs server-side in two stages:
 
-Beberapa keputusan desain di baliknya:
+1. **Hard constraints** — products failing any requirement are discarded before scoring:
+   - `harga ≤ budget`
+   - `battery_hours ≥ min_battery_hours`
+   - IP rating parsed live from the `water_resistance` string per IEC 60529 — `basic` requires the water digit ≥ 4; `sport` requires water ≥ 5 **or** dust ≥ 5 with water ≥ 4 (so IP54 qualifies for outdoor use, while IPX4 does not).
+2. **Cosine similarity** — surviving products are encoded as a 7-dimension vector and compared against the preference vector. The raw cosine (not the rounded display score) drives ordering, with deterministic tie-breakers (price → brand → name → id) so results never depend on database order.
 
-- Rating IP di-parse langsung dari stringnya mengikuti standar IEC 60529 (mis. `IP54` → debu 5, air 4), sehingga tidak bergantung pada tabel yang berisiko lupa diperbarui.
-- Fitur yang tidak diminta pengguna dinetralkan agar tidak menurunkan skor, sehingga produk dengan fitur tambahan tidak dihukum.
-- Bluetooth dan codec tidak ikut dalam perhitungan skor; keduanya hanya ditampilkan sebagai informasi pelengkap.
+| Dimension        | Encoding                        | Notes                                                          |
+| ---------------- | ------------------------------- | -------------------------------------------------------------- |
+| Sound character  | one-hot `[bass, balance, treble]` | single categorical attribute across 3 dimensions             |
+| ANC              | binary                          | zeroed when the user did not request it                        |
+| Gaming mode      | binary                          | zeroed when the user did not request it                        |
+| Battery          | capped min–max to 50 h          | 50+ hours saturates at 1.0                                     |
+| Water resistance | water digit ÷ 8                 | zeroed when "none"; dust ≥ 5 with water ≥ 4 scores as level 5  |
 
-## Teknologi
+Unrequested features are neutralized rather than penalizing the product, so a perfectly matching product can reach a score of 100. Bluetooth version and codec are excluded from scoring and displayed as informational specifications only.
 
-- **Backend:** FastAPI, MongoDB (PyMongo), Python 3.11+
-- **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, framer-motion
-- **Dataset:** koleksi produk TWS di bawah Rp1 juta
+## API
 
-## Struktur Project
+| Method   | Endpoint                      | Description                                                                 |
+| -------- | ----------------------------- | --------------------------------------------------------------------------- |
+| `GET`    | `/tws`                        | List products. Optional `skip`/`limit` pagination; `limit=0` returns all.   |
+| `GET`    | `/tws/{id}`                   | Product detail.                                                             |
+| `GET`    | `/tws/{id}/related`           | Related products: same brand first, then same price tier (300k/600k splits). |
+| `POST`   | `/tws`                        | Create a product. Rejects duplicate name + brand.                           |
+| `PUT`    | `/tws/{id}`                   | Full update. Rejects name + brand collisions with other products.           |
+| `DELETE` | `/tws/{id}`                   | Delete a product.                                                           |
+| `POST`   | `/recommend?top_n=5`          | Recommendations for a preference payload (`top_n` 1–20). Returns matches with display score (0–100), reason chips, and full specs. |
 
-```text
+## Project structure
+
+```
 tws-recommender/
-├── backend/      # API FastAPI, koneksi database, dan logika rekomendasi
-├── frontend/     # Aplikasi web Next.js
-├── docs/         # Screenshot untuk README
-└── tws.json      # Dataset produk (lokal saja, tidak disertakan di repo)
+├── backend/
+│   ├── app/
+│   │   ├── main.py            # FastAPI app: CRUD, related, recommendation scoring
+│   │   ├── models.py          # Pydantic models (TWSModel, UserPreferenceModel)
+│   │   ├── config.py          # Environment config (MongoDB, CORS)
+│   │   └── database.py        # MongoDB client / collection
+│   ├── scripts/seed.py        # Import tws.json into MongoDB
+│   └── requirements.txt
+├── frontend/
+│   ├── app/                   # App Router routes: /, /recommend, /product, /product/[id], /faq
+│   ├── components/            # Navbar, Footer, PreferenceForm, RecommendationList
+│   ├── lib/                   # API base URL, shared types
+│   ├── scripts/visual_qa.py   # Playwright layout checks
+│   └── public/images/         # Product images (not tracked)
+├── docs/screenshots/          # README screenshots
+└── tws.json                   # Product dataset (not tracked)
 ```
 
-## Menjalankan Project
+## Getting started
 
-### 1. Backend
+### Prerequisites
+
+- Node.js 20+
+- Python 3.11+
+- MongoDB running locally
+
+### Backend
 
 ```bash
 cd backend
@@ -48,55 +82,63 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Salin `backend/.env.example` menjadi `backend/.env`. Untuk pengembangan lokal, nilai default-nya sudah cukup selama MongoDB berjalan di `localhost:27017`. Lalu isi database dari dataset:
+Copy `backend/.env.example` to `backend/.env` (defaults match a local MongoDB on `localhost:27017`), then load the dataset and start the server:
 
 ```bash
 python -m scripts.seed
-```
-
-Jalankan server backend:
-
-```bash
 uvicorn app.main:app --reload
 ```
 
-Backend berjalan di `http://localhost:8000`.
+The API runs at `http://localhost:8000`.
 
-### 2. Frontend
+### Frontend
 
 ```bash
 cd frontend
 npm install
 ```
 
-Salin `frontend/.env.example` menjadi `frontend/.env.local` — opsional, karena tanpa file itu aplikasi memakai `http://localhost:8000` sebagai alamat API. Lalu jalankan:
+Copy `frontend/.env.example` to `frontend/.env.local` — optional, the app falls back to `http://localhost:8000` — then run:
 
 ```bash
 npm run dev
 ```
 
-Frontend berjalan di `http://localhost:3000`.
+The app runs at `http://localhost:3000`.
 
-## Environment Variables
+## Environment variables
 
 **Backend (`backend/.env`)**
 
-| Variable | Deskripsi | Default |
-| --- | --- | --- |
-| `MONGODB_URL` | URI koneksi MongoDB | `mongodb://localhost:27017/` |
-| `DB_NAME` | Nama database | `tws_recommender` |
-| `COLLECTION_NAME` | Nama koleksi produk | `tws_products` |
-| `CORS_ORIGINS` | Origin frontend yang diizinkan, dipisah koma | `http://localhost:3000` |
+| Variable          | Description                          | Default                     |
+| ----------------- | ------------------------------------ | --------------------------- |
+| `MONGODB_URL`     | MongoDB connection URI               | `mongodb://localhost:27017/` |
+| `DB_NAME`         | Database name                        | `tws_recommender`           |
+| `COLLECTION_NAME` | Product collection                   | `tws_products`              |
+| `CORS_ORIGINS`    | Allowed frontend origins, comma-separated | `http://localhost:3000` |
 
 **Frontend (`frontend/.env.local`)**
 
-| Variable | Deskripsi | Default |
-| --- | --- | --- |
-| `NEXT_PUBLIC_API_URL` | Base URL backend API | `http://localhost:8000` |
-| `NEXT_PUBLIC_SITE_URL` | Base URL situs untuk metadata saat link dibagikan | `http://localhost:3000` |
-| `IMAGE_REMOTE_HOSTS` | Host gambar eksternal untuk `next/image`, dipisah koma | kosong |
+| Variable               | Description                                        | Default                 |
+| ---------------------- | -------------------------------------------------- | ----------------------- |
+| `NEXT_PUBLIC_API_URL`  | Backend API base URL                               | `http://localhost:8000` |
+| `NEXT_PUBLIC_SITE_URL` | Site URL used for absolute metadata/OG links       | `http://localhost:3000` |
+| `IMAGE_REMOTE_HOSTS`   | External hosts allowed for `next/image`, comma-separated | empty             |
 
-## Catatan
+## Quality checks
 
-- Dataset `tws.json` dan gambar produk sengaja tidak disertakan di repo. Skrip seed membaca file tersebut dari root project, jadi siapkan data sendiri jika ingin mencoba — formatnya array of objects dengan skema yang sama seperti model `TWSModel` di `backend/app/models.py`.
-- Ada skrip pengecekan layout untuk halaman-halaman utama (butuh `playwright` Python serta backend dan frontend yang sedang berjalan): `python frontend/scripts/visual_qa.py`.
+```bash
+# frontend
+npm run lint            # ESLint
+npx tsc --noEmit        # type check
+npm run build           # production build
+
+# layout baseline (needs both servers running)
+python frontend/scripts/visual_qa.py
+```
+
+`visual_qa.py` walks `/`, `/recommend`, `/product`, one `/product/[id]` detail page, and `/faq` across four viewports (375, 768, 1024, 1440 px), asserting no horizontal overflow, exactly one `h1` per page, and the site title in the metadata.
+
+## Dataset note
+
+`tws.json` and the product images are intentionally not tracked in this repository. The seed script reads `tws.json` from the project root — the working dataset covers 90 products across 38 brands (IDR 95,000–999,000). To use your own data, provide a JSON array of objects matching `TWSModel` in `backend/app/models.py` and run `python -m scripts.seed`.
